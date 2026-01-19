@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import AuthGuard from "./components/AuthGuard";
 import JDScreener from "./pages/jdScreener";
-import { auth, logout } from "./firebase";
+import { logout } from "./firebase";
 
 function App() {
   return (
