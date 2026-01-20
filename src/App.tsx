@@ -1,8 +1,23 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import AuthGuard from "@/components/AuthGuard";
-import JdScreener from "@/utilities/jdScreener/App";
-import PdfTools from "@/utilities/pdfTools/App";
 import { logout } from "@/helpers/firebase";
+
+// Lazy load utility modules - only load when route is accessed
+const JdScreener = lazy(() => import("@/utilities/jdScreener/App"));
+const PdfTools = lazy(() => import("@/utilities/pdfTools/App"));
+
+// Loading fallback component
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center py-20">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-gray-600 text-sm">Loading...</p>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -23,7 +38,6 @@ function App() {
               >
                 JD Screener
               </Link>
-              {/* Changed link to /pdf */}
               <Link to="/pdf" className="hover:text-blue-600 transition-colors">
                 PDF Tools
               </Link>
@@ -35,24 +49,23 @@ function App() {
               Logout
             </button>
           </nav>
-
           <main className="container mx-auto max-w-7xl p-6">
-            <Routes>
-              <Route
-                path="/"
-                element={
-                  <div className="mt-20 text-center">
-                    <h1 className="text-4xl font-bold text-gray-800">
-                      Dashboard
-                    </h1>
-                  </div>
-                }
-              />
-              <Route path="/jd-screener" element={<JdScreener />} />
-
-              {/* IMPORTANT: Added /* to match sub-routes like /pdf/j2p */}
-              <Route path="/pdf/*" element={<PdfTools />} />
-            </Routes>
+            <Suspense fallback={<LoadingFallback />}>
+              <Routes>
+                <Route
+                  path="/"
+                  element={
+                    <div className="mt-20 text-center">
+                      <h1 className="text-4xl font-bold text-gray-800">
+                        Dashboard
+                      </h1>
+                    </div>
+                  }
+                />
+                <Route path="/jd-screener" element={<JdScreener />} />
+                <Route path="/pdf/*" element={<PdfTools />} />
+              </Routes>
+            </Suspense>
           </main>
         </div>
       </AuthGuard>
