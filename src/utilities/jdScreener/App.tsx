@@ -1,10 +1,10 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { config } from "../config";
-import { getToken } from "../firebase"; // Import the helper we just made
+import { config } from "@/config";
+import { getToken } from "@/helpers/firebase";
 
-export default function JDScreener() {
+export default function JdScreener() {
   const [jd, setJd] = useState("");
   const [response, setResponse] = useState("Analyze to get a response.");
   const [loading, setLoading] = useState(false);

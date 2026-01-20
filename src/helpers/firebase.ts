@@ -5,7 +5,7 @@ import {
   signInWithPopup,
   signOut,
 } from "firebase/auth";
-import { config } from "./config";
+import { config } from "@/config";
 
 const firebaseApp = initializeApp(config.firebase);
 
