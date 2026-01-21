@@ -1,6 +1,5 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
-import AuthGuard from "@/components/AuthGuard";
 import { logout } from "@/helpers/firebase";
 
 // Lazy load utility modules - only load when route is accessed
