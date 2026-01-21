@@ -110,7 +110,7 @@ function App() {
         </nav>
 
         {/* --- Main Content --- */}
-        <main className="container mx-auto max-w-7xl p-6 flex-grow">
+        <main className="container mx-auto max-w-7xl p-6 grow">
           <Suspense fallback={<Loader text="Loading Application..." />}>
             <Routes>
               {/* Public Routes */}

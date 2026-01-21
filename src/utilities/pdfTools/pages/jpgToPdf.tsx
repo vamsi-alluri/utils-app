@@ -263,7 +263,7 @@ export default function JpgToPdf() {
                 className="w-32 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
               />
               <ZoomIn size={18} className="text-gray-500" />
-              <span className="text-sm font-medium text-gray-600 min-w-[3rem]">
+              <span className="text-sm font-medium text-gray-600 min-w-12">
                 {scale}%
               </span>
             </div>
@@ -289,7 +289,7 @@ export default function JpgToPdf() {
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDragEnd={handleDragEnd}
                 className={`
-                  relative group cursor-move bg-white rounded-lg shadow-sm border-2 transition-all flex-shrink-0
+                  relative group cursor-move bg-white rounded-lg shadow-sm border-2 transition-all shrink-0
                   ${draggedIndex === index ? "opacity-50 border-blue-400" : "border-gray-200 hover:border-blue-300"}
                 `}
                 style={{
