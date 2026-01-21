@@ -5,6 +5,7 @@ import { auth, logout, loginWithGoogle } from "@/helpers/firebase"; // Added log
 import AuthGuard from "@/components/AuthGuard";
 import Footer from "@/components/Footer";
 import Loader from "@/components/Loader";
+import { User as UserIcon } from "lucide-react";
 
 // Lazy load utility modules
 const JdScreener = lazy(() => import("@/utilities/jdScreener/App"));
@@ -63,14 +64,32 @@ function App() {
             {user ? (
               // State: Logged In
               <>
-                {user.photoURL && (
+                {user.photoURL ? (
                   <img
                     src={user.photoURL}
                     alt="Profile"
-                    className="h-8 w-8 rounded-full border border-gray-200 shadow-sm"
+                    referrerPolicy="no-referrer"
+                    className="h-8 w-8 rounded-full border border-gray-200 shadow-sm object-cover"
                     title={user.displayName || "User"}
+                    onError={(e) => {
+                      // Fallback to hidden if image fails, showing the icon below instead
+                      e.currentTarget.style.display = "none";
+                      e.currentTarget.parentElement
+                        ?.querySelector(".fallback-icon")
+                        ?.classList.remove("hidden");
+                    }}
                   />
+                ) : (
+                  <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center border border-gray-200 text-gray-500">
+                    <UserIcon className="w-5 h-5" />
+                  </div>
                 )}
+
+                {/* Hidden fallback icon that shows if img crashes (Optional but robust) */}
+                <div className="fallback-icon hidden h-8 w-8 rounded-full bg-gray-100 items-center justify-center border border-gray-200 text-gray-500">
+                  <UserIcon className="w-5 h-5" />
+                </div>
+
                 <button
                   onClick={logout}
                   className="rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 hover:text-red-700 transition-all"
