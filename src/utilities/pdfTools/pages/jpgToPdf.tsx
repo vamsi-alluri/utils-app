@@ -2,7 +2,6 @@ import { useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   UploadCloud,
-  FileImage,
   CheckCircle,
   X,
   GripVertical,
