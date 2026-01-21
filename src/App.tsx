@@ -1,55 +1,100 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
-import { logout } from "@/helpers/firebase";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import { auth, logout, loginWithGoogle } from "@/helpers/firebase"; // Added loginWithGoogle
+import AuthGuard from "@/components/AuthGuard";
+import Footer from "@/components/Footer";
+import Loader from "@/components/Loader";
 
-// Lazy load utility modules - only load when route is accessed
+// Lazy load utility modules
 const JdScreener = lazy(() => import("@/utilities/jdScreener/App"));
 const PdfTools = lazy(() => import("@/utilities/pdfTools/App"));
-
-// Loading fallback component
-function LoadingFallback() {
-  return (
-    <div className="flex items-center justify-center py-20">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p className="text-gray-600 text-sm">Loading...</p>
-      </div>
-    </div>
-  );
-}
+const Privacy = lazy(() => import("@/pages/Privacy"));
+const Terms = lazy(() => import("@/pages/Terms"));
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      <div className="min-h-screen flex flex-col bg-gray-50 font-sans text-gray-900">
+        {/* --- Navigation Bar (Publicly Visible) --- */}
         <nav className="sticky top-0 z-50 flex items-center gap-8 bg-white px-6 py-4 shadow-sm border-b border-gray-200">
-          <strong className="text-xl font-extrabold tracking-tight text-blue-600">
+          <Link
+            to="/"
+            className="text-xl font-extrabold tracking-tight text-blue-600"
+          >
             UTILS
-          </strong>
+          </Link>
+
+          {/* Links are now visible to everyone */}
           <div className="flex items-center gap-6 text-sm font-medium text-gray-600">
             <Link to="/" className="hover:text-blue-600 transition-colors">
               Home
             </Link>
+
+            {/* UX Choice: We show the link, but if they click it
+              without being logged in, the AuthGuard will catch them.
+            */}
             <Link
               to="/jd-screener"
               className="hover:text-blue-600 transition-colors"
             >
-              JD Screener
+              JD Screener{" "}
+              <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded ml-1">
+                Auth
+              </span>
             </Link>
+
             <Link to="/pdf" className="hover:text-blue-600 transition-colors">
               PDF Tools
             </Link>
           </div>
-          <button
-            onClick={logout}
-            className="ml-auto rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 hover:text-red-700 transition-all"
-          >
-            Logout
-          </button>
+
+          {/* Right Side: Auth State */}
+          <div className="ml-auto flex items-center gap-4">
+            {user ? (
+              // State: Logged In
+              <>
+                {user.photoURL && (
+                  <img
+                    src={user.photoURL}
+                    alt="Profile"
+                    className="h-8 w-8 rounded-full border border-gray-200 shadow-sm"
+                    title={user.displayName || "User"}
+                  />
+                )}
+                <button
+                  onClick={logout}
+                  className="rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 hover:text-red-700 transition-all"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              // State: Guest (Public)
+              <button
+                onClick={loginWithGoogle}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm transition-all"
+              >
+                Sign In
+              </button>
+            )}
+          </div>
         </nav>
-        <main className="container mx-auto max-w-7xl p-6">
-          <Suspense fallback={<LoadingFallback />}>
+
+        {/* --- Main Content --- */}
+        <main className="container mx-auto max-w-7xl p-6 flex-grow">
+          <Suspense fallback={<Loader text="Loading Application..." />}>
             <Routes>
+              {/* Public Routes */}
               <Route
                 path="/"
                 element={
@@ -57,14 +102,33 @@ function App() {
                     <h1 className="text-4xl font-bold text-gray-800">
                       Dashboard
                     </h1>
+                    <p className="text-gray-500 mt-2">
+                      {user
+                        ? `Welcome back, ${user.displayName}`
+                        : "Free developer tools. Sign in for AI features."}
+                    </p>
                   </div>
                 }
               />
-              <Route path="/jd-screener" element={<JdScreener />} />
+
               <Route path="/pdf/*" element={<PdfTools />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
+
+              {/* Protected Route: JD Screener ONLY */}
+              <Route
+                path="/jd-screener"
+                element={
+                  <AuthGuard title="JD Screener Bot">
+                    <JdScreener />
+                  </AuthGuard>
+                }
+              />
             </Routes>
           </Suspense>
         </main>
+
+        <Footer />
       </div>
     </BrowserRouter>
   );
