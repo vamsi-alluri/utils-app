@@ -109,7 +109,7 @@ function App() {
         </nav>
 
         {/* --- Main Content --- */}
-        <main className="container mx-auto max-w-7xl p-6 grow">
+        <main className="container w-[90%] mx-auto p-6 grow">
           {/* Progress bar only shows when Suspense actually triggers */}
           <SuspenseWithProgress
             theme="blue"

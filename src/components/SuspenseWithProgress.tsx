@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Suspense, ReactNode } from "react";
+import { useState, useEffect, useRef, Suspense, type ReactNode } from "react";
 
 interface ProgressBarProps {
   theme?: "blue" | "red" | "green" | "purple" | "orange" | "pink";

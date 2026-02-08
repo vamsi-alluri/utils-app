@@ -1,13 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import {
-  Crop,
-  Image,
-  Download,
-  Upload,
-  Scissors,
-  Maximize2,
-  X,
-} from "lucide-react";
+import { Crop, Download, Upload, Scissors, Maximize2, X } from "lucide-react";
 
 type Unit = "pixels" | "inches" | "cms";
 type AspectRatio = "free" | "1:1" | "4:3" | "16:9" | "3:2" | "2:3" | "custom";
@@ -91,7 +83,7 @@ export default function ImageTools() {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
+      const img = new window.Image();
       img.onload = () => {
         setImage(img);
         setCropArea({
