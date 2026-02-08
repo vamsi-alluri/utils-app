@@ -15,6 +15,8 @@ import {
   RectangleHorizontal,
   Trash2,
   ChevronDown,
+  File as FileIcon,
+  Loader2,
 } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
@@ -25,7 +27,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 // --- Types ---
 
 interface PdfPage {
-  id: string;
+  id: string; // Unique Page ID
+  sourceFileId: string; // Link to the parent UploadedFile
   sourceFileName: string;
   sourceColor: string;
   pageNumber: number; // 1-based
@@ -37,6 +40,7 @@ interface PdfPage {
 }
 
 interface UploadedFile {
+  id: string; // Unique File Batch ID
   fileName: string;
   color: string;
   pageCount: number;
@@ -46,15 +50,20 @@ interface UploadedFile {
 
 // --- Constants ---
 
-const COLORS = [
-  "#3B82F6",
-  "#10B981",
-  "#F59E0B",
-  "#EF4444",
-  "#8B5CF6",
-  "#EC4899",
-  "#14B8A6",
-  "#F97316",
+// Expanded Color Pool (12 Colors)
+const COLOR_POOL = [
+  "#3B82F6", // Blue
+  "#10B981", // Emerald
+  "#F59E0B", // Amber
+  "#EF4444", // Red
+  "#8B5CF6", // Violet
+  "#EC4899", // Pink
+  "#14B8A6", // Teal
+  "#F97316", // Orange
+  "#6366F1", // Indigo
+  "#84CC16", // Lime
+  "#06B6D4", // Cyan
+  "#D946EF", // Fuchsia
 ];
 
 const PAGE_SIZES = {
@@ -82,7 +91,7 @@ const DEFAULT_SETTINGS: MergeSettings = {
 };
 
 // --- Helper: Truncate Filename ---
-const truncateFilename = (name: string, maxLength: number = 15) => {
+const truncateFilename = (name: string, maxLength: number = 20) => {
   if (name.length <= maxLength) return name;
   const extIndex = name.lastIndexOf(".");
   const ext = extIndex !== -1 ? name.substring(extIndex) : "";
@@ -108,6 +117,7 @@ export default function MergePdfs() {
   // UI States
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   // Settings State
   const [settings, setSettings] = useState<MergeSettings>(DEFAULT_SETTINGS);
@@ -145,21 +155,31 @@ export default function MergePdfs() {
     }
   }, [hasImages, hasPdfs, activeSettingsTab]);
 
+  // --- Helper: Get Next Available Color ---
+  const getAvailableColor = (currentFiles: UploadedFile[]) => {
+    const usedColors = new Set(currentFiles.map((f) => f.color));
+    // Find first color in pool not currently used
+    const available = COLOR_POOL.find((c) => !usedColors.has(c));
+    // If all used, cycle using modulo based on count
+    return available || COLOR_POOL[currentFiles.length % COLOR_POOL.length];
+  };
+
   // --- Helper: Generate Filename ---
   const updateFilename = (
     currentPages: PdfPage[],
     allUploadedFiles: UploadedFile[],
   ) => {
-    const activeFileNames = new Set(currentPages.map((p) => p.sourceFileName));
-    const activeFiles = allUploadedFiles.filter((f) =>
-      activeFileNames.has(f.fileName),
-    );
+    // Check which unique files are still represented in the pages
+    const activeFileIds = new Set(currentPages.map((p) => p.sourceFileId));
+    const activeFiles = allUploadedFiles.filter((f) => activeFileIds.has(f.id));
+
     const timestamp = new Date()
       .toISOString()
       .replace(/[-:T.]/g, "")
       .slice(0, 14);
     let newName = `merged-doc-${timestamp}`;
 
+    // If exactly 2 files, try to combine names
     if (activeFiles.length === 2) {
       const name1 = activeFiles[0].fileName.replace(
         /\.(pdf|png|jpg|jpeg)$/i,
@@ -181,12 +201,32 @@ export default function MergePdfs() {
     if (e.target.files) addFiles(Array.from(e.target.files));
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  // --- Global Drop Zone Logic ---
+  const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.files) addFiles(Array.from(e.dataTransfer.files));
+    e.stopPropagation();
+    if (!isProcessing) setIsDraggingFile(true);
   };
 
-  const handleUploadClick = () => fileInputRef.current?.click();
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingFile(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingFile(false);
+    if (!isProcessing && e.dataTransfer.files) {
+      addFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
+  const handleUploadClick = () => {
+    if (!isProcessing) fileInputRef.current?.click();
+  };
 
   const handleUploadKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -203,22 +243,24 @@ export default function MergePdfs() {
   };
 
   const addFiles = async (files: File[]) => {
+    if (isProcessing) return;
     setError("");
     setIsProcessing(true);
 
     const newUploadedFiles: UploadedFile[] = [];
     const newPages: PdfPage[] = [];
-    let count = uploadedFiles.length;
+
+    // We need a temp copy of existing files to calculate colors correctly within this loop
+    let currentUploadedFilesState = [...uploadedFiles];
     let addedPdf = false;
     let addedImage = false;
 
     for (const file of files) {
-      count++;
-      const color = COLORS[count % COLORS.length];
-      const isPdf = file.type === "application/pdf";
-      const isImage = file.type === "image/jpeg" || file.type === "image/png";
-
-      if (!isPdf && !isImage) {
+      if (
+        file.type !== "application/pdf" &&
+        file.type !== "image/jpeg" &&
+        file.type !== "image/png"
+      ) {
         setError(
           "Skipped unsupported file. Only PDF, PNG, and JPG are allowed.",
         );
@@ -226,20 +268,30 @@ export default function MergePdfs() {
       }
 
       try {
-        if (isPdf) {
+        const fileId = `${Date.now()}-${Math.random()}`; // Unique ID for this specific upload
+
+        // Get color based on what we have + what we've added in this batch so far
+        const color = getAvailableColor([
+          ...currentUploadedFilesState,
+          ...newUploadedFiles,
+        ]);
+
+        if (file.type === "application/pdf") {
           addedPdf = true;
           const arrayBuffer = await file.arrayBuffer();
           const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer })
             .promise;
           const numPages = pdfDoc.numPages;
 
-          newUploadedFiles.push({
+          const newFileObj = {
+            id: fileId,
             fileName: file.name,
             color,
             pageCount: numPages,
             file,
-            type: "pdf",
-          });
+            type: "pdf" as const,
+          };
+          newUploadedFiles.push(newFileObj);
 
           for (let pageNum = 1; pageNum <= numPages; pageNum++) {
             const page = await pdfDoc.getPage(pageNum);
@@ -251,7 +303,8 @@ export default function MergePdfs() {
             await page.render({ canvasContext: context, viewport }).promise;
 
             newPages.push({
-              id: `${Date.now()}-${Math.random()}-${pageNum}`,
+              id: `${fileId}-${pageNum}`,
+              sourceFileId: fileId, // Link to parent
               sourceFileName: file.name,
               sourceColor: color,
               pageNumber: pageNum,
@@ -271,16 +324,19 @@ export default function MergePdfs() {
             img.onload = resolve;
           });
 
-          newUploadedFiles.push({
+          const newFileObj = {
+            id: fileId,
             fileName: file.name,
             color,
             pageCount: 1,
             file,
-            type: "image",
-          });
+            type: "image" as const,
+          };
+          newUploadedFiles.push(newFileObj);
 
           newPages.push({
-            id: `${Date.now()}-${Math.random()}-img`,
+            id: `${fileId}-img`,
+            sourceFileId: fileId, // Link to parent
             sourceFileName: file.name,
             sourceColor: color,
             pageNumber: 1,
@@ -297,7 +353,6 @@ export default function MergePdfs() {
       }
     }
 
-    // Auto-switch tab if we added a specific type and it was previously the other way
     if (addedPdf && !addedImage && activeSettingsTab === "image")
       setActiveSettingsTab("pdf");
     if (addedImage && !addedPdf && activeSettingsTab === "pdf")
@@ -305,19 +360,57 @@ export default function MergePdfs() {
 
     const updatedPages = [...pages, ...newPages];
     const updatedFiles = [...uploadedFiles, ...newUploadedFiles];
+
     setPages(updatedPages);
     setUploadedFiles(updatedFiles);
     updateFilename(updatedPages, updatedFiles);
     setIsProcessing(false);
   };
 
-  const removePage = (id: string) => {
-    const newPages = pages.filter((page) => page.id !== id);
+  const removePage = (pageId: string) => {
+    if (isProcessing) return;
+
+    // Find the page before removing to identify its source file
+    const pageToRemove = pages.find((p) => p.id === pageId);
+    if (!pageToRemove) return;
+
+    // Remove the page
+    const newPages = pages.filter((page) => page.id !== pageId);
     setPages(newPages);
-    updateFilename(newPages, uploadedFiles);
+
+    // Check if any pages from this source file remain
+    const remainingPagesFromFile = newPages.filter(
+      (p) => p.sourceFileId === pageToRemove.sourceFileId,
+    );
+
+    let newFiles = uploadedFiles;
+    // If no pages remain, remove the file from Source Files list too
+    if (remainingPagesFromFile.length === 0) {
+      newFiles = uploadedFiles.filter(
+        (f) => f.id !== pageToRemove.sourceFileId,
+      );
+      setUploadedFiles(newFiles);
+    }
+
+    updateFilename(newPages, newFiles);
+  };
+
+  const removeFile = (fileId: string) => {
+    if (isProcessing) return;
+
+    // Remove all pages associated with this specific File ID
+    const newPages = pages.filter((p) => p.sourceFileId !== fileId);
+
+    // Remove the file itself using ID (handles duplicates correctly)
+    const newFiles = uploadedFiles.filter((f) => f.id !== fileId);
+
+    setPages(newPages);
+    setUploadedFiles(newFiles);
+    updateFilename(newPages, newFiles);
   };
 
   const confirmClearAll = () => {
+    if (isProcessing) return;
     setPages([]);
     setUploadedFiles([]);
     setOutputFileName("merged-document");
@@ -325,13 +418,10 @@ export default function MergePdfs() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // --- Click Selection Logic ---
   const handlePageClick = (type: "image" | "pdf") => {
-    // Just switch the tab, don't open the dropdown
     setActiveSettingsTab(type);
   };
 
-  // --- Drag and Drop Reordering ---
   const handleDragStart = (index: number) => setDraggedIndex(index);
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
@@ -345,7 +435,6 @@ export default function MergePdfs() {
   };
   const handleDragEnd = () => setDraggedIndex(null);
 
-  // --- Merge Logic ---
   const mergePdfs = async () => {
     if (pages.length === 0) return;
     setIsMerging(true);
@@ -355,17 +444,19 @@ export default function MergePdfs() {
       const sourcePdfCache = new Map<string, PDFDocument>();
 
       for (const page of pages) {
+        // Find file by ID to handle duplicates correctly
         const sourceFileObj = uploadedFiles.find(
-          (u) => u.fileName === page.sourceFileName,
+          (u) => u.id === page.sourceFileId,
         );
         if (!sourceFileObj) continue;
 
         if (page.type === "pdf") {
-          let sourcePdf = sourcePdfCache.get(page.sourceFileName);
+          // Key cache by ID so duplicates are treated as distinct sources (safer for pdf-lib)
+          let sourcePdf = sourcePdfCache.get(page.sourceFileId);
           if (!sourcePdf) {
             const arrayBuffer = await sourceFileObj.file.arrayBuffer();
             sourcePdf = await PDFDocument.load(arrayBuffer);
-            sourcePdfCache.set(page.sourceFileName, sourcePdf);
+            sourcePdfCache.set(page.sourceFileId, sourcePdf);
           }
 
           if (settings.pdf.pageSize === "Original") {
@@ -477,99 +568,18 @@ export default function MergePdfs() {
   };
 
   const baseWidth = 100;
-  // Calculate if we should enable the dropdown toggle
   const canSwitchSettings = hasImages && hasPdfs;
 
   return (
-    <div className="max-w-7xl mx-auto mt-10 px-4 pb-20">
+    <div className="max-w-[90%] mx-auto mt-10 px-4 pb-20">
       <Link
         to="/pdf"
-        className="text-sm text-blue-600 hover:underline mb-4 block focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-sm"
+        className="text-sm text-blue-600 hover:underline mb-4 block focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-sm w-fit"
       >
         &larr; Back to PDF Tools
       </Link>
 
-      <div className="w-full bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-200">
-        {/* --- Header / Upload Toggle --- */}
-        {!hasFiles ? (
-          // State 1: Empty - Large Centered Header & Upload
-          <>
-            <h1 className="text-2xl font-bold text-gray-800 mb-2 text-center">
-              Merge PDFs & Images
-            </h1>
-            <p className="text-gray-500 mb-8 text-center">
-              Upload PDFs or Images, reorder pages, and merge into one document.
-            </p>
-
-            <div
-              tabIndex={0}
-              role="button"
-              onKeyDown={handleUploadKeyDown}
-              onClick={handleUploadClick}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              className={`
-                relative border-2 border-dashed border-gray-300 bg-gray-50 rounded-xl p-12 mb-6 hover:bg-gray-100 hover:border-blue-400
-                transition-all cursor-pointer outline-none group
-                focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                ${error ? "border-red-300 bg-red-50" : ""}
-              `}
-            >
-              <div className="flex flex-col items-center">
-                <div className="mx-auto h-12 w-12 text-gray-400 mb-3 group-hover:text-blue-500 transition-colors">
-                  <UploadCloud size={48} />
-                </div>
-                <span className="block text-sm font-medium text-gray-700">
-                  Click to upload files
-                </span>
-                <span className="block text-xs text-gray-400 mt-1">
-                  PDF, JPG, PNG supported
-                </span>
-              </div>
-            </div>
-          </>
-        ) : (
-          // State 2: Active - Split Layout (Left: Info, Right: Dropzone)
-          <div className="flex flex-col md:flex-row gap-6 mb-6 border-b border-gray-100 pb-6 min-h-[120px]">
-            {/* Left: Info */}
-            <div className="md:w-1/2 flex flex-col justify-center">
-              <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                Merge PDFs & Images
-                <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                  {pages.length} Pages
-                </span>
-              </h1>
-              <p className="text-sm text-gray-500 mt-2">
-                Drag pages to reorder. Click a page to configure specific
-                settings below.
-              </p>
-            </div>
-
-            {/* Right: Upload Dropzone */}
-            <div
-              tabIndex={0}
-              role="button"
-              onKeyDown={handleUploadKeyDown}
-              onClick={handleUploadClick}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              className={`
-                md:w-1/2 border-2 border-dashed border-blue-200 bg-blue-50/50 rounded-xl
-                flex flex-col items-center justify-center p-4 cursor-pointer transition-all
-                hover:bg-blue-50 hover:border-blue-400 outline-none focus:ring-2 focus:ring-blue-500
-              `}
-            >
-              <div className="flex items-center gap-3 text-blue-700">
-                <UploadCloud size={24} />
-                <span className="font-medium text-base">Add more files</span>
-              </div>
-              <span className="text-xs text-blue-400 mt-1">
-                or drag and drop here
-              </span>
-            </div>
-          </div>
-        )}
-
+      <div className="w-full">
         {/* Hidden Input */}
         <input
           type="file"
@@ -585,346 +595,519 @@ export default function MergePdfs() {
             {error}
           </p>
         )}
-        {isProcessing && (
-          <div className="text-center mb-4">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="text-sm text-gray-600 mt-2">Processing files...</p>
-          </div>
-        )}
 
-        {/* --- Controls Bar --- */}
-        {hasFiles && (
-          <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 mb-6 flex flex-col xl:flex-row items-center gap-4 xl:gap-6 justify-between sticky top-4 z-30 shadow-sm">
-            {/* Left: Zoom */}
-            <div className="flex items-center gap-3 w-full xl:w-auto justify-center xl:justify-start">
-              <ZoomOut size={16} className="text-gray-500" />
-              <input
-                type="range"
-                min="1"
-                max="6"
-                step="0.5"
-                value={scale}
-                onChange={(e) => setScale(Number(e.target.value))}
-                className="w-32 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <ZoomIn size={16} className="text-gray-500" />
-            </div>
+        {!hasFiles ? (
+          // --- Empty State ---
+          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+            <h1 className="text-2xl font-bold text-gray-800 mb-2 text-center">
+              Merge PDFs & Images
+            </h1>
+            <p className="text-gray-500 mb-8 text-center">
+              Upload PDFs or Images, reorder pages, and merge into one document.
+            </p>
 
-            {/* Center: Settings Panel */}
-            <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2 bg-white rounded-md border border-gray-200 shadow-sm w-full xl:w-auto transition-all duration-300">
-              {/* Dropdown for Context Switching */}
-              <div className="relative mr-2 border-r pr-4" ref={settingsRef}>
-                <button
-                  onClick={() =>
-                    canSwitchSettings && setIsSettingsOpen(!isSettingsOpen)
-                  }
-                  disabled={!canSwitchSettings}
-                  className={`
-                    flex items-center gap-2 text-sm font-medium px-2 py-1 rounded transition-colors focus:outline-none
-                    ${canSwitchSettings ? "hover:bg-gray-100 cursor-pointer text-gray-700" : "cursor-default text-gray-800"}
-                  `}
-                >
-                  <Settings size={14} className="text-gray-500" />
-                  {activeSettingsTab === "image"
-                    ? "Image Settings"
-                    : "PDF Settings"}
-
-                  {/* Only show arrow if we have both types to switch between */}
-                  {canSwitchSettings &&
-                    (isSettingsOpen ? (
-                      <ChevronDown
-                        size={12}
-                        className="rotate-180 transition-transform"
-                      />
-                    ) : (
-                      <ChevronDown size={12} className="transition-transform" />
-                    ))}
-                </button>
-
-                {/* Click-Triggered Dropdown - ONLY shows the OTHER option */}
-                {isSettingsOpen && canSwitchSettings && (
-                  <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-50 animate-fade-in overflow-hidden">
-                    {activeSettingsTab === "image" ? (
-                      <button
-                        onClick={() => {
-                          setActiveSettingsTab("pdf");
-                          setIsSettingsOpen(false);
-                        }}
-                        className="block w-full text-left px-4 py-3 text-sm hover:bg-blue-50 text-gray-700 transition-colors"
-                      >
-                        Switch to PDF Settings
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setActiveSettingsTab("image");
-                          setIsSettingsOpen(false);
-                        }}
-                        className="block w-full text-left px-4 py-3 text-sm hover:bg-blue-50 text-gray-700 transition-colors"
-                      >
-                        Switch to Image Settings
-                      </button>
-                    )}
+            <div className="relative">
+              <div
+                tabIndex={isProcessing ? -1 : 0}
+                role="button"
+                onKeyDown={handleUploadKeyDown}
+                onClick={handleUploadClick}
+                onDragOver={handleDragEnter}
+                onDrop={handleDrop}
+                className={`
+                  relative border-2 border-dashed border-gray-300 bg-gray-50 rounded-xl p-12 mb-6 hover:bg-gray-100 hover:border-blue-400
+                  transition-all cursor-pointer outline-none group
+                  focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                  ${isProcessing ? "opacity-50 pointer-events-none grayscale" : ""}
+                `}
+              >
+                <div className="flex flex-col items-center">
+                  <div className="mx-auto h-12 w-12 text-gray-400 mb-3 group-hover:text-blue-500 transition-colors">
+                    <UploadCloud size={48} />
                   </div>
-                )}
+                  <span className="block text-sm font-medium text-gray-700">
+                    Click to upload files
+                  </span>
+                  <span className="block text-xs text-gray-400 mt-1">
+                    PDF, JPG, PNG supported
+                  </span>
+                </div>
               </div>
 
-              {/* Dynamic Options based on Tab */}
-              {activeSettingsTab === "image" ? (
-                // --- Image Options ---
-                <>
-                  <div className="flex items-center gap-3">
-                    {["A4", "Letter", "Fit"].map((size) => (
-                      <label
-                        key={size}
-                        className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-700 hover:text-blue-600"
-                      >
-                        <input
-                          type="radio"
-                          name="imgPageSize"
-                          checked={settings.image.pageSize === size}
-                          onChange={() =>
-                            setSettings((prev) => ({
-                              ...prev,
-                              image: { ...prev.image, pageSize: size as any },
-                            }))
-                          }
-                          className="w-3.5 h-3.5 text-blue-600 focus:ring-blue-500"
-                        />
-                        {size}
-                      </label>
-                    ))}
-                  </div>
-
-                  {settings.image.pageSize !== "Fit" && (
-                    <div className="flex items-center gap-1 ml-2 border-l pl-4">
-                      <button
-                        onClick={() =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            image: { ...prev.image, orientation: "portrait" },
-                          }))
-                        }
-                        title="Portrait"
-                        className={`p-1.5 rounded transition-colors ${settings.image.orientation === "portrait" ? "bg-blue-100 text-blue-700" : "text-gray-400 hover:text-gray-600"}`}
-                      >
-                        <RectangleVertical size={16} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            image: { ...prev.image, orientation: "landscape" },
-                          }))
-                        }
-                        title="Landscape"
-                        className={`p-1.5 rounded transition-colors ${settings.image.orientation === "landscape" ? "bg-blue-100 text-blue-700" : "text-gray-400 hover:text-gray-600"}`}
-                      >
-                        <RectangleHorizontal size={16} />
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                // --- PDF Options ---
-                <div className="flex items-center gap-3">
-                  {["Original", "A4", "Letter"].map((size) => (
-                    <label
-                      key={size}
-                      className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-700 hover:text-blue-600"
-                    >
-                      <input
-                        type="radio"
-                        name="pdfPageSize"
-                        checked={settings.pdf.pageSize === size}
-                        onChange={() =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            pdf: { pageSize: size as any },
-                          }))
-                        }
-                        className="w-3.5 h-3.5 text-blue-600 focus:ring-blue-500"
-                      />
-                      {size}
-                    </label>
-                  ))}
-                  <span className="text-xs text-gray-400 ml-2 border-l pl-2 italic">
-                    (Orientation auto)
-                  </span>
+              {/* Empty State Loader Overlay */}
+              {isProcessing && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 rounded-xl backdrop-blur-sm">
+                  <Loader2
+                    className="animate-spin text-blue-600 mb-3"
+                    size={48}
+                  />
+                  <p className="text-sm font-medium text-blue-600">
+                    Processing files...
+                  </p>
                 </div>
               )}
             </div>
+          </div>
+        ) : (
+          <div className="flex flex-col lg:flex-row gap-8 items-start">
+            {/* --- Left Column: Content (Scrolls & Drop Zone) --- */}
+            <div
+              className={`flex-1 w-full min-w-0 transition-colors rounded-xl relative ${isDraggingFile ? "ring-4 ring-blue-400 bg-blue-50" : ""}`}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+            >
+              {/* Drop Overlay Hint */}
+              {isDraggingFile && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 rounded-xl backdrop-blur-sm pointer-events-none">
+                  <div className="text-center text-blue-600">
+                    <UploadCloud
+                      size={64}
+                      className="mx-auto mb-4 animate-bounce"
+                    />
+                    <h2 className="text-2xl font-bold">
+                      Drop files here to add
+                    </h2>
+                  </div>
+                </div>
+              )}
 
-            {/* Right: Clear All */}
-            <div className="flex items-center w-full xl:w-auto justify-center xl:justify-end">
+              {/* Active State Loader Overlay */}
+              {isProcessing && (
+                <div className="absolute inset-0 z-50 flex justify-center bg-white/60 backdrop-blur-[2px] rounded-xl cursor-wait">
+                  <div className="sticky top-1/2 h-fit -translate-y-1/2 flex flex-col items-center p-6 bg-white rounded-2xl shadow-xl border border-gray-100">
+                    <Loader2
+                      className="animate-spin text-blue-600 mb-3"
+                      size={48}
+                    />
+                    <p className="text-base font-medium text-gray-700">
+                      Processing new files...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Sticky Glassy Header */}
+              <div className="lg:sticky lg:top-24 z-30 mb-6">
+                <div className="absolute -top-12 left-0 right-0 h-12 bg-gradient-to-b from-gray-50/0 to-gray-50/90 pointer-events-none" />
+
+                <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4 bg-white/90 backdrop-blur-md p-4 rounded-xl border border-white/50 shadow-md">
+                  <div>
+                    <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                      Merge PDFs & Images
+                      <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                        {pages.length} Pages
+                      </span>
+                    </h1>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Drag pages to reorder. Drop new files anywhere.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <ZoomOut size={16} className="text-gray-500" />
+                    <input
+                      type="range"
+                      min="1"
+                      max="6"
+                      step="0.5"
+                      value={scale}
+                      onChange={(e) => setScale(Number(e.target.value))}
+                      className="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <ZoomIn size={16} className="text-gray-500" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Page Grid */}
+              <div className="flex flex-wrap gap-4 p-6 bg-white rounded-xl border border-gray-200 shadow-sm min-h-[400px] content-start items-start justify-center lg:justify-start">
+                {pages.map((page, index) => {
+                  const displayWidth = baseWidth * scale;
+                  const truncatedName = truncateFilename(page.sourceFileName);
+
+                  return (
+                    <div
+                      key={page.id}
+                      draggable={!isProcessing}
+                      onClick={() => handlePageClick(page.type)}
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragEnd={handleDragEnd}
+                      className={`
+                          relative group cursor-pointer flex flex-col bg-white rounded-sm shadow-md transition-all shrink-0
+                          ${draggedIndex === index ? "opacity-50 scale-105 border-2 border-blue-400" : "border border-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-200"}
+                          ${activeSettingsTab === page.type ? "ring-2 ring-blue-100 border-blue-200" : ""}
+                        `}
+                      style={{ width: `${displayWidth}px` }}
+                      title={`${page.sourceFileName} (${page.type.toUpperCase()}) - Page ${page.pageNumber}`}
+                    >
+                      <div
+                        className="absolute -top-2 -left-2 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center z-10 shadow-sm"
+                        style={{ backgroundColor: page.sourceColor }}
+                      >
+                        {index + 1}
+                      </div>
+
+                      <div className="absolute top-2 right-2 z-10 bg-white/90 p-1 rounded-md shadow-sm">
+                        {page.type === "image" ? (
+                          <ImageIcon size={12} className="text-purple-600" />
+                        ) : (
+                          <FileText size={12} className="text-blue-600" />
+                        )}
+                      </div>
+
+                      <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity z-20">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removePage(page.id);
+                          }}
+                          className="bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      <div className="w-full h-full bg-gray-100 overflow-hidden rounded-sm relative">
+                        <img
+                          src={page.thumbnailDataUrl}
+                          alt={`Page ${page.pageNumber}`}
+                          className="w-full h-auto block"
+                          draggable={false}
+                        />
+                      </div>
+
+                      <div className="p-2 border-t border-gray-100 bg-white text-center">
+                        <p className="text-[10px] text-gray-700 font-medium truncate">
+                          {truncatedName}
+                        </p>
+                        {page.type === "pdf" && (
+                          <p className="text-[9px] text-gray-400 mt-0.5">
+                            Page {page.pageNumber} / {page.totalPages}
+                          </p>
+                        )}
+                        {page.type === "image" && (
+                          <p className="text-[9px] text-gray-400 mt-0.5">
+                            Image
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div
+                  onClick={handleUploadClick}
+                  className={`
+                      flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white
+                      hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-400 transition-all shrink-0 cursor-pointer
+                    `}
+                  style={{
+                    width: `${baseWidth * scale}px`,
+                    height: `${baseWidth * scale * 1.414}px`,
+                  }}
+                >
+                  <Plus size={24 * (scale > 2 ? 1.5 : 1)} />
+                  <span className="text-xs font-medium mt-2">Add Files</span>
+                </div>
+              </div>
+            </div>
+
+            {/* --- Right Column: Sticky Actions --- */}
+            <div className="w-full lg:w-80 shrink-0 lg:sticky lg:top-24 space-y-4 h-fit">
+              {/* 1. Source Files List */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+                <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                  <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-2">
+                    <FileIcon size={14} className="text-gray-500" />
+                    Source Files
+                  </h3>
+                  <button
+                    onClick={handleUploadClick}
+                    disabled={isProcessing}
+                    className={`text-xs flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all ${isProcessing ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    <Plus size={12} /> Add
+                  </button>
+                </div>
+
+                <div className="max-h-[220px] overflow-y-auto p-2 space-y-2 custom-scrollbar">
+                  {uploadedFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center justify-between p-2 rounded-lg bg-white border border-gray-100 hover:border-gray-200 group"
+                    >
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: file.color }}
+                        ></div>
+                        <div className="min-w-0">
+                          <p
+                            className="text-xs font-medium text-gray-700 truncate"
+                            title={file.fileName}
+                          >
+                            {truncateFilename(file.fileName, 18)}
+                          </p>
+                          <p className="text-[10px] text-gray-400">
+                            {file.type === "pdf"
+                              ? `${file.pageCount} pages`
+                              : "Image"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => removeFile(file.id)}
+                        disabled={isProcessing}
+                        className={`text-gray-300 hover:text-red-500 transition-colors p-1 ${isProcessing ? "cursor-not-allowed opacity-50" : ""}`}
+                        title="Remove file"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 2. Clear All */}
               {!showClearConfirm ? (
                 <button
-                  onClick={() => setShowClearConfirm(true)}
-                  className="flex items-center gap-2 text-sm text-red-600 hover:text-red-700 font-medium px-3 py-1.5 rounded hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  onClick={() => !isProcessing && setShowClearConfirm(true)}
+                  disabled={isProcessing}
+                  className={`w-full py-2 rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 hover:border-red-300 font-medium text-sm flex items-center justify-center gap-2 transition-colors ${isProcessing ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
-                  <Trash2 size={16} />
-                  Clear All
+                  <Trash2 size={16} /> Clear All Pages
                 </button>
               ) : (
-                <div className="flex items-center gap-2 animate-fade-in bg-red-50 px-2 py-1 rounded border border-red-100">
-                  <span className="text-xs text-red-800 font-medium">
-                    Confirm?
+                <div className="flex items-center gap-2 bg-red-50 p-2 rounded-lg border border-red-200 animate-fade-in">
+                  <span className="text-xs text-red-800 font-medium flex-1 pl-2">
+                    Confirm clear?
                   </span>
                   <button
                     onClick={confirmClearAll}
-                    className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                    className="text-xs bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700 font-medium"
                   >
                     Yes
                   </button>
                   <button
                     onClick={() => setShowClearConfirm(false)}
-                    className="text-xs bg-white text-gray-600 border border-gray-300 px-2 py-1 rounded hover:bg-gray-50"
+                    className="text-xs bg-white text-gray-700 border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 font-medium"
                   >
                     No
                   </button>
                 </div>
               )}
-            </div>
-          </div>
-        )}
 
-        {/* --- Pages Grid --- */}
-        {hasFiles && (
-          <div className="flex flex-wrap gap-6 mb-6 p-6 bg-gray-50 rounded-lg min-h-[200px] content-start items-start justify-center">
-            {pages.map((page, index) => {
-              const displayWidth = baseWidth * scale;
-              const truncatedName = truncateFilename(page.sourceFileName);
+              {/* 3. Merge Actions Card */}
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                  <CheckCircle size={16} className="text-blue-600" />
+                  Merge & Download
+                </h3>
 
-              return (
-                <div
-                  key={page.id}
-                  draggable
-                  onClick={() => handlePageClick(page.type)}
-                  onDragStart={() => handleDragStart(index)}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDragEnd={handleDragEnd}
-                  className={`
-                    relative group cursor-pointer flex flex-col bg-white rounded-sm shadow-md transition-all shrink-0
-                    ${draggedIndex === index ? "opacity-50 scale-105 border-2 border-blue-400" : "border border-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-200"}
-                  `}
-                  style={{ width: `${displayWidth}px` }}
-                  title={`${page.sourceFileName} (${page.type.toUpperCase()}) - Page ${page.pageNumber}`}
-                >
-                  {/* Badge */}
-                  <div
-                    className="absolute -top-2 -left-2 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center z-10 shadow-sm"
-                    style={{ backgroundColor: page.sourceColor }}
-                  >
-                    {index + 1}
-                  </div>
-
-                  {/* Type Icon */}
-                  <div className="absolute top-2 right-2 z-10 bg-white/90 p-1 rounded-md shadow-sm">
-                    {page.type === "image" ? (
-                      <ImageIcon size={12} className="text-purple-600" />
-                    ) : (
-                      <FileText size={12} className="text-blue-600" />
-                    )}
-                  </div>
-
-                  {/* Remove Btn */}
-                  <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity z-20">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removePage(page.id);
-                      }}
-                      className="bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  {/* Preview Container */}
-                  <div className="w-full h-full bg-gray-100 overflow-hidden rounded-sm relative">
-                    <img
-                      src={page.thumbnailDataUrl}
-                      alt={`Page ${page.pageNumber}`}
-                      className="w-full h-auto block"
-                      draggable={false}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                    Filename
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <FileEdit size={14} className="text-gray-400" />
+                    </div>
+                    <input
+                      type="text"
+                      value={outputFileName}
+                      onChange={(e) => setOutputFileName(e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={handleFilenameKeyDown}
+                      className="w-full pl-8 pr-8 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                     />
-                  </div>
-
-                  {/* Footer Info */}
-                  <div className="p-2 border-t border-gray-100 bg-white text-center">
-                    <p className="text-[10px] text-gray-700 font-medium truncate">
-                      {truncatedName}
-                    </p>
-                    {page.type === "pdf" && (
-                      <p className="text-[9px] text-gray-400 mt-0.5">
-                        Page {page.pageNumber} / {page.totalPages}
-                      </p>
-                    )}
-                    {page.type === "image" && (
-                      <p className="text-[9px] text-gray-400 mt-0.5">Image</p>
-                    )}
+                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                      <span className="text-gray-400 font-medium text-xs">
+                        .pdf
+                      </span>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
 
-            {/* --- Add Page Card (Grid) --- */}
-            {/* Added back to the grid flow as requested */}
-            <div
-              onClick={handleUploadClick}
-              className={`
-                flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50
-                hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-400 transition-all shrink-0 cursor-pointer
-              `}
-              style={{
-                width: `${baseWidth * scale}px`,
-                // Force an A4 aspect ratio height (1.414) so it aligns with standard document pages
-                height: `${baseWidth * scale * 1.414}px`,
-              }}
-            >
-              <Plus size={24 * (scale > 2 ? 1.5 : 1)} />
-              <span className="text-xs font-medium mt-2">Add Files</span>
+                <button
+                  onClick={mergePdfs}
+                  disabled={isMerging || isProcessing}
+                  className={`
+                      w-full font-semibold py-2.5 px-4 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 text-sm
+                      ${isMerging || isProcessing ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md active:scale-95"}
+                    `}
+                >
+                  {isMerging ? "Merging..." : "Download PDF"}
+                </button>
+              </div>
+
+              {/* 4. Settings Card */}
+              <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                  <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                    <Settings size={16} className="text-gray-600" />
+                    Configuration
+                  </h3>
+
+                  {canSwitchSettings && (
+                    <div className="relative" ref={settingsRef}>
+                      <button
+                        onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                      >
+                        Switch
+                        <ChevronDown size={12} />
+                      </button>
+                      {isSettingsOpen && (
+                        <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-200 rounded shadow-lg z-50">
+                          <button
+                            onClick={() => {
+                              setActiveSettingsTab(
+                                activeSettingsTab === "image" ? "pdf" : "image",
+                              );
+                              setIsSettingsOpen(false);
+                            }}
+                            className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50 text-gray-700"
+                          >
+                            {activeSettingsTab === "image"
+                              ? "PDF Settings"
+                              : "Image Settings"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-xs font-medium text-gray-500 mb-2">
+                  Configuring:{" "}
+                  <span className="text-gray-800">
+                    {activeSettingsTab === "image"
+                      ? "Image Files"
+                      : "PDF Files"}
+                  </span>
+                </div>
+
+                {activeSettingsTab === "image" ? (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-2">
+                        PAGE SIZE
+                      </label>
+                      <div className="space-y-1">
+                        {["A4", "Letter", "Fit"].map((size) => (
+                          <label
+                            key={size}
+                            className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-gray-50 transition-colors"
+                          >
+                            <input
+                              type="radio"
+                              name="imgPageSize"
+                              checked={settings.image.pageSize === size}
+                              onChange={() =>
+                                setSettings((prev) => ({
+                                  ...prev,
+                                  image: {
+                                    ...prev.image,
+                                    pageSize: size as any,
+                                  },
+                                }))
+                              }
+                              className="w-3.5 h-3.5 text-blue-600"
+                            />
+                            <span className="text-sm text-gray-700">
+                              {size}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {settings.image.pageSize !== "Fit" && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-2">
+                          ORIENTATION
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() =>
+                              setSettings((prev) => ({
+                                ...prev,
+                                image: {
+                                  ...prev.image,
+                                  orientation: "portrait",
+                                },
+                              }))
+                            }
+                            className={`flex items-center justify-center gap-1 py-1.5 text-xs rounded border transition-all ${
+                              settings.image.orientation === "portrait"
+                                ? "bg-blue-50 text-blue-700 border-blue-200 font-medium"
+                                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                            }`}
+                          >
+                            <RectangleVertical size={12} /> Portrait
+                          </button>
+                          <button
+                            onClick={() =>
+                              setSettings((prev) => ({
+                                ...prev,
+                                image: {
+                                  ...prev.image,
+                                  orientation: "landscape",
+                                },
+                              }))
+                            }
+                            className={`flex items-center justify-center gap-1 py-1.5 text-xs rounded border transition-all ${
+                              settings.image.orientation === "landscape"
+                                ? "bg-blue-50 text-blue-700 border-blue-200 font-medium"
+                                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                            }`}
+                          >
+                            <RectangleHorizontal size={12} /> Landscape
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-2">
+                        TARGET SIZE
+                      </label>
+                      <div className="space-y-1">
+                        {["Original", "A4", "Letter"].map((size) => (
+                          <label
+                            key={size}
+                            className="flex items-center gap-2 cursor-pointer p-1.5 rounded hover:bg-gray-50 transition-colors"
+                          >
+                            <input
+                              type="radio"
+                              name="pdfPageSize"
+                              checked={settings.pdf.pageSize === size}
+                              onChange={() =>
+                                setSettings((prev) => ({
+                                  ...prev,
+                                  pdf: { pageSize: size as any },
+                                }))
+                              }
+                              className="w-3.5 h-3.5 text-blue-600"
+                            />
+                            <span className="text-sm text-gray-700">
+                              {size}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
-
-        {/* --- Action Bar --- */}
-        <div className="flex flex-col md:flex-row gap-4 items-stretch mt-8">
-          <div className="relative flex-grow">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FileEdit size={18} className="text-gray-400" />
-            </div>
-            <input
-              type="text"
-              value={outputFileName}
-              onChange={(e) => setOutputFileName(e.target.value)}
-              onFocus={(e) => e.target.select()}
-              onKeyDown={handleFilenameKeyDown}
-              placeholder="Enter file name"
-              className="w-full pl-10 pr-12 py-3 border-2 border-gray-300 rounded-lg outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-gray-700"
-              disabled={!hasFiles || isMerging || isProcessing}
-            />
-            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-              <span className="text-gray-400 font-medium text-sm">.pdf</span>
-            </div>
-          </div>
-          <button
-            onClick={mergePdfs}
-            disabled={!hasFiles || isMerging || isProcessing}
-            className={`
-              md:w-auto font-semibold py-3 px-8 rounded-lg shadow-md transition-all flex items-center justify-center gap-2 whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-              ${!hasFiles || isMerging || isProcessing ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg active:transform active:scale-95"}
-            `}
-          >
-            {isMerging ? (
-              "Merging..."
-            ) : (
-              <>
-                <CheckCircle size={20} /> Merge Files
-              </>
-            )}
-          </button>
-        </div>
       </div>
     </div>
   );
