@@ -74,8 +74,6 @@ const PAGE_SIZES = {
   Original: [0, 0],
 };
 
-type PageSizeKey = keyof typeof PAGE_SIZES;
-
 interface MergeSettings {
   image: {
     pageSize: "A4" | "Letter" | "Fit";
@@ -146,7 +144,11 @@ const PdfPageThumbnail = ({
 
         if (renderTaskRef.current) renderTaskRef.current.cancel();
 
-        const renderTask = page.render({ canvasContext: context, viewport });
+        const renderTask = page.render({
+          canvasContext: context,
+          viewport,
+          canvas,
+        });
         renderTaskRef.current = renderTask;
 
         await renderTask.promise;
@@ -742,7 +744,7 @@ export default function MergePdfs() {
         }
       }
       const pdfBytes = await mergedPdf.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const blob = new Blob([pdfBytes as any], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       let fileName = outputFileName.trim() || `merged-doc-${Date.now()}`;
       if (!fileName.toLowerCase().endsWith(".pdf")) fileName += ".pdf";
