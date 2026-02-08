@@ -114,6 +114,9 @@ export default function MergePdfs() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
+  // New state for file reordering
+  const [draggedFileIndex, setDraggedFileIndex] = useState<number | null>(null);
+
   const [settings, setSettings] = useState<MergeSettings>(DEFAULT_SETTINGS);
   const [activeSettingsTab, setActiveSettingsTab] = useState<"image" | "pdf">(
     "image",
@@ -215,14 +218,10 @@ export default function MergePdfs() {
     if (e.target.files) addFiles(Array.from(e.target.files));
   };
 
-  // --- Global Drop Zone Logic ---
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-
-    // FIX: Don't activate global file drop if we are reordering pages
-    if (draggedIndex !== null) return;
-
+    if (draggedIndex !== null || draggedFileIndex !== null) return; // Ignore if dragging internal items
     if (!isProcessing && e.dataTransfer.types.includes("Files")) {
       setIsDraggingFile(true);
     }
@@ -239,10 +238,9 @@ export default function MergePdfs() {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingFile(false);
-
-    // FIX: Only accept files if not reordering
     if (
       draggedIndex === null &&
+      draggedFileIndex === null &&
       !isProcessing &&
       e.dataTransfer.files &&
       e.dataTransfer.files.length > 0
@@ -269,13 +267,64 @@ export default function MergePdfs() {
     }
   };
 
+  // --- Source File Reordering Handlers ---
+
+  const handleFileDragStart = (e: React.DragEvent, index: number) => {
+    // Prevent drag if clicking the remove button (target check)
+    // The button has its own onClick, but drag start can trigger on container.
+    if ((e.target as HTMLElement).closest("button")) {
+      e.preventDefault();
+      return;
+    }
+    setDraggedFileIndex(index);
+  };
+
+  const handleFileDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault(); // Necessary to allow dropping
+    if (draggedFileIndex === null || draggedFileIndex === index) return;
+
+    // Reorder the uploadedFiles array locally
+    const newFiles = [...uploadedFiles];
+    const draggedItem = newFiles[draggedFileIndex];
+    newFiles.splice(draggedFileIndex, 1);
+    newFiles.splice(index, 0, draggedItem);
+
+    setUploadedFiles(newFiles);
+    setDraggedFileIndex(index);
+  };
+
+  const handleFileDragEnd = () => {
+    setDraggedFileIndex(null);
+
+    // "Group Sort": Reconstruct the pages array based on the new file order.
+    // This preserves pages but groups them by file according to the list.
+    const pagesByFileId = new Map<string, PdfPage[]>();
+
+    // 1. Group existing pages by their source file
+    pages.forEach((p) => {
+      const group = pagesByFileId.get(p.sourceFileId) || [];
+      group.push(p);
+      pagesByFileId.set(p.sourceFileId, group);
+    });
+
+    // 2. Flatten back into a single array based on the new file order
+    const newPages: PdfPage[] = [];
+    uploadedFiles.forEach((file) => {
+      const filePages = pagesByFileId.get(file.id);
+      if (filePages) {
+        newPages.push(...filePages);
+      }
+    });
+
+    setPages(newPages);
+  };
+
   const addFiles = async (files: File[]) => {
     if (isProcessing) return;
     setError("");
     setIsProcessing(true);
 
     const newUploadedFiles: UploadedFile[] = [];
-    const newPages: PdfPage[] = [];
     let currentUploadedFilesState = [...uploadedFiles];
     let addedPdf = false;
     let addedImage = false;
@@ -306,14 +355,15 @@ export default function MergePdfs() {
             .promise;
           const numPages = pdfDoc.numPages;
 
-          newUploadedFiles.push({
+          const newFile = {
             id: fileId,
             fileName: file.name,
             color,
             pageCount: numPages,
             file,
-            type: "pdf",
-          });
+            type: "pdf" as const,
+          };
+          newUploadedFiles.push(newFile);
 
           for (let pageNum = 1; pageNum <= numPages; pageNum++) {
             const page = await pdfDoc.getPage(pageNum);
@@ -324,18 +374,21 @@ export default function MergePdfs() {
             canvas.width = viewport.width;
             await page.render({ canvasContext: context, viewport }).promise;
 
-            newPages.push({
-              id: `${fileId}-${pageNum}`,
-              sourceFileId: fileId,
-              sourceFileName: file.name,
-              sourceColor: color,
-              pageNumber: pageNum,
-              totalPages: numPages,
-              type: "pdf",
-              thumbnailDataUrl: canvas.toDataURL(),
-              width: viewport.width,
-              height: viewport.height,
-            });
+            setPages((prev) => [
+              ...prev,
+              {
+                id: `${fileId}-${pageNum}`,
+                sourceFileId: fileId,
+                sourceFileName: file.name,
+                sourceColor: color,
+                pageNumber: pageNum,
+                totalPages: numPages,
+                type: "pdf",
+                thumbnailDataUrl: canvas.toDataURL(),
+                width: viewport.width,
+                height: viewport.height,
+              },
+            ]);
           }
         } else {
           addedImage = true;
@@ -346,27 +399,31 @@ export default function MergePdfs() {
             img.onload = resolve;
           });
 
-          newUploadedFiles.push({
+          const newFile = {
             id: fileId,
             fileName: file.name,
             color,
             pageCount: 1,
             file,
-            type: "image",
-          });
+            type: "image" as const,
+          };
+          newUploadedFiles.push(newFile);
 
-          newPages.push({
-            id: `${fileId}-img`,
-            sourceFileId: fileId,
-            sourceFileName: file.name,
-            sourceColor: color,
-            pageNumber: 1,
-            totalPages: 1,
-            type: "image",
-            thumbnailDataUrl: objectUrl,
-            width: img.width,
-            height: img.height,
-          });
+          setPages((prev) => [
+            ...prev,
+            {
+              id: `${fileId}-img`,
+              sourceFileId: fileId,
+              sourceFileName: file.name,
+              sourceColor: color,
+              pageNumber: 1,
+              totalPages: 1,
+              type: "image",
+              thumbnailDataUrl: objectUrl,
+              width: img.width,
+              height: img.height,
+            },
+          ]);
         }
       } catch (err) {
         console.error("Error processing file:", err);
@@ -379,12 +436,16 @@ export default function MergePdfs() {
     if (addedImage && !addedPdf && activeSettingsTab === "pdf")
       setActiveSettingsTab("image");
 
-    const updatedPages = [...pages, ...newPages];
     const updatedFiles = [...uploadedFiles, ...newUploadedFiles];
-    setPages(updatedPages);
     setUploadedFiles(updatedFiles);
-    updateFilename(updatedPages, updatedFiles);
-    setIsProcessing(false);
+
+    setTimeout(() => {
+      setPages((currentPages) => {
+        updateFilename(currentPages, updatedFiles);
+        return currentPages;
+      });
+      setIsProcessing(false);
+    }, 0);
   };
 
   const removePage = (pageId: string) => {
@@ -563,7 +624,7 @@ export default function MergePdfs() {
   const canSwitchSettings = hasImages && hasPdfs;
 
   return (
-    <div className="max-w-[90%] mx-auto mt-10 px-4 pb-20">
+    <div className="w-full max-w-[90%] 2xl:max-w-[80%] mx-auto mt-10 px-4 pb-20">
       <Link
         to="/pdf"
         className="text-sm text-blue-600 hover:underline mb-4 block focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-sm w-fit"
@@ -694,14 +755,19 @@ export default function MergePdfs() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-4 p-6 bg-white rounded-xl border border-gray-200 shadow-sm min-h-[400px] content-start items-start justify-center lg:justify-start">
+              <div
+                className="grid gap-4 p-6 bg-white rounded-xl border border-gray-200 shadow-sm min-h-[400px] content-start"
+                style={{
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${baseWidth * scale}px, 1fr))`,
+                }}
+              >
                 {pages.map((page, index) => {
-                  const displayWidth = baseWidth * scale;
                   const truncatedName = truncateFilename(page.sourceFileName);
                   const { width: targetW, height: targetH } =
                     getPageDimensions(page);
-                  const aspectRatio = targetW / targetH;
-                  const displayHeight = displayWidth / aspectRatio;
+                  const aspectRatioStyle = {
+                    aspectRatio: `${targetW}/${targetH}`,
+                  };
 
                   return (
                     <div
@@ -711,9 +777,7 @@ export default function MergePdfs() {
                       onDragStart={() => handleDragStart(index)}
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDragEnd={handleDragEnd}
-                      // FIX: Changed cursor-pointer to cursor-grab
-                      className={`relative group cursor-grab active:cursor-grabbing flex flex-col bg-white rounded-sm shadow-md transition-all shrink-0 ${draggedIndex === index ? "opacity-50 scale-105 border-2 border-blue-400" : "border border-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-200"} ${activeSettingsTab === page.type ? "ring-2 ring-blue-100 border-blue-200" : ""}`}
-                      style={{ width: `${displayWidth}px` }}
+                      className={`relative group cursor-grab active:cursor-grabbing flex flex-col bg-white rounded-sm shadow-md transition-all w-full ${draggedIndex === index ? "opacity-50 scale-105 border-2 border-blue-400" : "border border-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-200"} ${activeSettingsTab === page.type ? "ring-2 ring-blue-100 border-blue-200" : ""}`}
                       title={`${page.sourceFileName} (${page.type.toUpperCase()}) - Page ${page.pageNumber}`}
                     >
                       <div
@@ -741,8 +805,8 @@ export default function MergePdfs() {
                         </button>
                       </div>
                       <div
-                        className="bg-gray-100 overflow-hidden rounded-sm relative flex items-center justify-center"
-                        style={{ height: `${displayHeight}px` }}
+                        className="bg-gray-100 overflow-hidden rounded-sm relative flex items-center justify-center w-full"
+                        style={aspectRatioStyle}
                       >
                         <img
                           src={page.thumbnailDataUrl}
@@ -767,10 +831,7 @@ export default function MergePdfs() {
                 <div
                   onClick={handleUploadClick}
                   className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-400 transition-all shrink-0 cursor-pointer`}
-                  style={{
-                    width: `${baseWidth * scale}px`,
-                    height: `${baseWidth * scale * 1.414}px`,
-                  }}
+                  style={{ aspectRatio: "210/297" }}
                 >
                   <Plus size={24 * (scale > 2 ? 1.5 : 1)} />
                   <span className="text-xs font-medium mt-2">Add Files</span>
@@ -778,7 +839,6 @@ export default function MergePdfs() {
               </div>
             </div>
 
-            {/* --- Right Column --- */}
             <div className="w-full lg:w-80 shrink-0 lg:sticky lg:top-24 space-y-4 h-fit">
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -795,12 +855,16 @@ export default function MergePdfs() {
                   </button>
                 </div>
                 <div className="max-h-[220px] overflow-y-auto p-2 space-y-2 custom-scrollbar">
-                  {uploadedFiles.map((file) => (
+                  {uploadedFiles.map((file, index) => (
                     <div
                       key={file.id}
-                      className="flex items-center justify-between p-2 rounded-lg bg-white border border-gray-100 hover:border-gray-200 group"
+                      draggable
+                      onDragStart={(e) => handleFileDragStart(e, index)}
+                      onDragOver={(e) => handleFileDragOver(e, index)}
+                      onDragEnd={handleFileDragEnd}
+                      className="flex items-center justify-between p-2 rounded-lg bg-white border border-gray-100 hover:border-gray-200 group cursor-grab active:cursor-grabbing"
                     >
-                      <div className="flex items-center gap-2 overflow-hidden">
+                      <div className="flex items-center gap-2 overflow-hidden pointer-events-none">
                         <div
                           className="w-2.5 h-2.5 rounded-full shrink-0"
                           style={{ backgroundColor: file.color }}
@@ -820,9 +884,12 @@ export default function MergePdfs() {
                         </div>
                       </div>
                       <button
-                        onClick={() => removeFile(file.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFile(file.id);
+                        }}
                         disabled={isProcessing}
-                        className={`text-gray-300 hover:text-red-500 transition-colors p-1 ${isProcessing ? "cursor-not-allowed opacity-50" : ""}`}
+                        className={`text-gray-300 hover:text-red-500 transition-colors p-1 cursor-pointer ${isProcessing ? "cursor-not-allowed opacity-50" : ""}`}
                         title="Remove file"
                       >
                         <X size={14} />
