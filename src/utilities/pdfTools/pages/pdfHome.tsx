@@ -1,6 +1,8 @@
+// /src/utilities/pdfTools/pages/PdfHome.tsx
+
 import { Link } from "react-router-dom";
 // Importing icons from the new package
-import { File, FileText, Layers } from "griddy-icons";
+import { File, FileText, Layers2 } from "lucide-react";
 
 export default function PdfHome() {
   const tools = [
@@ -11,7 +13,7 @@ export default function PdfHome() {
       path: "j2p",
       // Using red theme to match PDF/Image logic
       color: "bg-red-50 text-red-600 hover:border-red-200",
-      icon: <File size={32} />, // Griddy icons usually accept a size prop
+      icon: <File size={32} />,
     },
     {
       id: "p2j",
@@ -25,10 +27,10 @@ export default function PdfHome() {
     {
       id: "merge",
       title: "Merge PDF",
-      desc: "Coming Soon...",
-      path: "#",
-      color: "bg-gray-50 text-gray-400 cursor-not-allowed opacity-60",
-      icon: <Layers size={32} />,
+      desc: "Merge multiple PDF files into a single document.",
+      path: "mergePdfs",
+      color: "bg-green-50 text-green-600 hover:border-green-200",
+      icon: <Layers2 size={32} />,
     },
   ];
 

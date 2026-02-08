@@ -1,15 +1,17 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { auth, logout, loginWithGoogle } from "@/helpers/firebase"; // Added loginWithGoogle
+import { auth, logout, loginWithGoogle } from "@/helpers/firebase";
 import AuthGuard from "@/components/AuthGuard";
 import Footer from "@/components/Footer";
 import Loader from "@/components/Loader";
+import SuspenseWithProgress from "@/components/SuspenseWithProgress";
 import { User as UserIcon } from "lucide-react";
 
 // Lazy load utility modules
 const JdScreener = lazy(() => import("@/utilities/jdScreener/App"));
 const PdfTools = lazy(() => import("@/utilities/pdfTools/App"));
+const ImageTools = lazy(() => import("@/utilities/imageTools/App"));
 const Privacy = lazy(() => import("@/pages/Privacy"));
 const Terms = lazy(() => import("@/pages/Terms"));
 
@@ -41,9 +43,6 @@ function App() {
               Home
             </Link>
 
-            {/* UX Choice: We show the link, but if they click it
-              without being logged in, the AuthGuard will catch them.
-            */}
             <Link
               to="/jd-screener"
               className="hover:text-blue-600 transition-colors"
@@ -57,12 +56,15 @@ function App() {
             <Link to="/pdf" className="hover:text-blue-600 transition-colors">
               PDF Tools
             </Link>
+
+            <Link to="/image" className="hover:text-blue-600 transition-colors">
+              Image Tools
+            </Link>
           </div>
 
           {/* Right Side: Auth State */}
           <div className="ml-auto flex items-center gap-4">
             {user ? (
-              // State: Logged In
               <>
                 {user.photoURL ? (
                   <img
@@ -72,7 +74,6 @@ function App() {
                     className="h-8 w-8 rounded-full border border-gray-200 shadow-sm object-cover"
                     title={user.displayName || "User"}
                     onError={(e) => {
-                      // Fallback to hidden if image fails, showing the icon below instead
                       e.currentTarget.style.display = "none";
                       e.currentTarget.parentElement
                         ?.querySelector(".fallback-icon")
@@ -85,7 +86,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Hidden fallback icon that shows if img crashes (Optional but robust) */}
                 <div className="fallback-icon hidden h-8 w-8 rounded-full bg-gray-100 items-center justify-center border border-gray-200 text-gray-500">
                   <UserIcon className="w-5 h-5" />
                 </div>
@@ -98,7 +98,6 @@ function App() {
                 </button>
               </>
             ) : (
-              // State: Guest (Public)
               <button
                 onClick={loginWithGoogle}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 shadow-sm transition-all"
@@ -111,7 +110,11 @@ function App() {
 
         {/* --- Main Content --- */}
         <main className="container mx-auto max-w-7xl p-6 grow">
-          <Suspense fallback={<Loader text="Loading Application..." />}>
+          {/* Progress bar only shows when Suspense actually triggers */}
+          <SuspenseWithProgress
+            theme="blue"
+            fallback={<Loader text="Loading Application..." />}
+          >
             <Routes>
               {/* Public Routes */}
               <Route
@@ -131,6 +134,7 @@ function App() {
               />
 
               <Route path="/pdf/*" element={<PdfTools />} />
+              <Route path="/image/*" element={<ImageTools />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
 
@@ -144,7 +148,7 @@ function App() {
                 }
               />
             </Routes>
-          </Suspense>
+          </SuspenseWithProgress>
         </main>
 
         <Footer />

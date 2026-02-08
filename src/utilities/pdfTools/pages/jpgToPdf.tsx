@@ -8,7 +8,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import jsPDF from "jspdf";
+import { PDFDocument } from "pdf-lib";
 
 interface ImageFile {
   id: string;
@@ -99,56 +99,77 @@ export default function JpgToPdf() {
     setDraggedIndex(null);
   };
 
-  // --- Conversion Logic ---
+  // --- Conversion Logic (pdf-lib) ---
 
   const convertToPdf = async () => {
     if (images.length === 0) return;
     setIsConverting(true);
 
     try {
-      const pdf = new jsPDF("p", "mm", pageSize);
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10;
+      const pdfDoc = await PDFDocument.create();
+
+      // PDF-Lib uses points (1/72 inch).
+      // A4: 595.28 x 841.89 points
+      // Letter: 612.00 x 792.00 points
+      const pageDimensions =
+        pageSize === "a4"
+          ? ([595.28, 841.89] as [number, number])
+          : ([612.0, 792.0] as [number, number]);
+
+      const [pageWidth, pageHeight] = pageDimensions;
+
+      // Margin approx 10mm (28.35 points)
+      const margin = 28.35;
       const maxImgWidth = pageWidth - margin * 2;
       const maxImgHeight = pageHeight - margin * 2;
 
-      for (let i = 0; i < images.length; i++) {
-        const imageFile = images[i];
+      for (const imageFile of images) {
+        // 1. Fetch image bytes from the preview blob URL
+        const imageBytes = await fetch(imageFile.preview).then((res) =>
+          res.arrayBuffer(),
+        );
 
-        // Load image and get dimensions
-        await new Promise<void>((resolve, reject) => {
-          const img = new Image();
-          img.src = imageFile.preview;
+        // 2. Embed the JPG into the PDF document
+        const jpgImage = await pdfDoc.embedJpg(imageBytes);
 
-          img.onload = () => {
-            const ratio = Math.min(
-              maxImgWidth / img.width,
-              maxImgHeight / img.height,
-            );
-            const finalWidth = img.width * ratio;
-            const finalHeight = img.height * ratio;
-            const x = (pageWidth - finalWidth) / 2;
-            const y = (pageHeight - finalHeight) / 2;
+        // 3. Get image dimensions
+        const { width: imgWidth, height: imgHeight } = jpgImage;
 
-            if (i > 0) pdf.addPage();
-            pdf.addImage(
-              imageFile.preview,
-              "JPEG",
-              x,
-              y,
-              finalWidth,
-              finalHeight,
-            );
-            resolve();
-          };
+        // 4. Calculate scale to fit page while maintaining aspect ratio
+        const ratio = Math.min(
+          maxImgWidth / imgWidth,
+          maxImgHeight / imgHeight,
+        );
 
-          img.onerror = () => reject(new Error("Failed to load image"));
+        const finalWidth = imgWidth * ratio;
+        const finalHeight = imgHeight * ratio;
+
+        // 5. Center image on page
+        const x = (pageWidth - finalWidth) / 2;
+        const y = (pageHeight - finalHeight) / 2;
+
+        // 6. Add page and draw image
+        const page = pdfDoc.addPage(pageDimensions);
+        page.drawImage(jpgImage, {
+          x,
+          y,
+          width: finalWidth,
+          height: finalHeight,
         });
       }
 
+      // 7. Save and trigger download
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+
       const timestamp = new Date().toISOString().slice(0, 10);
-      pdf.save(`converted_${timestamp}_${pageSize}.pdf`);
+      link.download = `converted_${timestamp}_${pageSize}.pdf`;
+      link.click();
+
+      // Cleanup
+      URL.revokeObjectURL(link.href);
       setIsConverting(false);
     } catch (err) {
       console.error(err);
@@ -163,7 +184,7 @@ export default function JpgToPdf() {
     <div className="max-w-6xl mx-auto mt-10 px-4">
       <Link
         to="/pdf"
-        className="text-sm text-blue-600 hover:underline mb-4 block"
+        className="text-sm text-red-600 hover:underline mb-4 block"
       >
         &larr; Back to PDF Tools
       </Link>
@@ -183,7 +204,7 @@ export default function JpgToPdf() {
           onDrop={handleDrop}
           className={`
             relative border-2 border-dashed rounded-xl p-12 transition-all cursor-pointer mb-6
-            ${error ? "border-red-300 bg-red-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400"}
+            ${error ? "border-red-300 bg-red-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-red-400"}
           `}
         >
           <div className="flex flex-col items-center">
@@ -197,7 +218,7 @@ export default function JpgToPdf() {
               or drag and drop multiple files here
             </span>
             {images.length > 0 && (
-              <span className="block text-sm text-blue-600 font-medium mt-2">
+              <span className="block text-sm text-red-600 font-medium mt-2">
                 {images.length} image{images.length > 1 ? "s" : ""} selected
               </span>
             )}
@@ -232,7 +253,7 @@ export default function JpgToPdf() {
                   onClick={() => setPageSize("a4")}
                   className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
                     pageSize === "a4"
-                      ? "bg-white text-blue-600 shadow-sm"
+                      ? "bg-white text-red-600 shadow-sm"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
@@ -242,7 +263,7 @@ export default function JpgToPdf() {
                   onClick={() => setPageSize("letter")}
                   className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
                     pageSize === "letter"
-                      ? "bg-white text-blue-600 shadow-sm"
+                      ? "bg-white text-red-600 shadow-sm"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
@@ -260,7 +281,7 @@ export default function JpgToPdf() {
                 max="100"
                 value={scale}
                 onChange={(e) => setScale(Number(e.target.value))}
-                className="w-32 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                className="w-32 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-600"
               />
               <ZoomIn size={18} className="text-gray-500" />
               <span className="text-sm font-medium text-gray-600 min-w-12">
@@ -290,14 +311,14 @@ export default function JpgToPdf() {
                 onDragEnd={handleDragEnd}
                 className={`
                   relative group cursor-move bg-white rounded-lg shadow-sm border-2 transition-all shrink-0
-                  ${draggedIndex === index ? "opacity-50 border-blue-400" : "border-gray-200 hover:border-blue-300"}
+                  ${draggedIndex === index ? "opacity-50 border-red-400" : "border-gray-200 hover:border-red-300"}
                 `}
                 style={{
                   width: `calc(${thumbnailSize}% - 1rem)`,
                   minWidth: "64px",
                 }}
               >
-                <div className="absolute top-2 left-2 bg-blue-600 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center z-10">
+                <div className="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center z-10">
                   {index + 1}
                 </div>
 
@@ -338,7 +359,7 @@ export default function JpgToPdf() {
             ${
               images.length === 0 || isConverting
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg active:transform active:scale-95"
+                : "bg-red-600 text-white hover:bg-red-700 hover:shadow-lg active:transform active:scale-95"
             }
           `}
         >
