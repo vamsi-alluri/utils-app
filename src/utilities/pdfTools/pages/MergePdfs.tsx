@@ -27,20 +27,20 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 // --- Types ---
 
 interface PdfPage {
-  id: string; // Unique Page ID
-  sourceFileId: string; // Link to the parent UploadedFile
+  id: string;
+  sourceFileId: string;
   sourceFileName: string;
   sourceColor: string;
   pageNumber: number; // 1-based
   totalPages: number;
   type: "pdf" | "image";
   thumbnailDataUrl: string;
-  width?: number;
-  height?: number;
+  width: number;
+  height: number;
 }
 
 interface UploadedFile {
-  id: string; // Unique File Batch ID
+  id: string;
   fileName: string;
   color: string;
   pageCount: number;
@@ -50,20 +50,19 @@ interface UploadedFile {
 
 // --- Constants ---
 
-// Expanded Color Pool (12 Colors)
 const COLOR_POOL = [
-  "#3B82F6", // Blue
-  "#10B981", // Emerald
-  "#F59E0B", // Amber
-  "#EF4444", // Red
-  "#8B5CF6", // Violet
-  "#EC4899", // Pink
-  "#14B8A6", // Teal
-  "#F97316", // Orange
-  "#6366F1", // Indigo
-  "#84CC16", // Lime
-  "#06B6D4", // Cyan
-  "#D946EF", // Fuchsia
+  "#3B82F6",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+  "#F97316",
+  "#6366F1",
+  "#84CC16",
+  "#06B6D4",
+  "#D946EF",
 ];
 
 const PAGE_SIZES = {
@@ -90,17 +89,14 @@ const DEFAULT_SETTINGS: MergeSettings = {
   pdf: { pageSize: "Original" },
 };
 
-// --- Helper: Truncate Filename ---
 const truncateFilename = (name: string, maxLength: number = 20) => {
   if (name.length <= maxLength) return name;
   const extIndex = name.lastIndexOf(".");
   const ext = extIndex !== -1 ? name.substring(extIndex) : "";
   const nameNoExt = extIndex !== -1 ? name.substring(0, extIndex) : name;
-
   const charCount = maxLength - ext.length - 3;
   const start = Math.ceil(charCount / 2);
   const end = Math.floor(charCount / 2);
-
   return `${nameNoExt.slice(0, start)}...${nameNoExt.slice(-end)}${ext}`;
 };
 
@@ -114,12 +110,10 @@ export default function MergePdfs() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [outputFileName, setOutputFileName] = useState("merged-document");
 
-  // UI States
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  // Settings State
   const [settings, setSettings] = useState<MergeSettings>(DEFAULT_SETTINGS);
   const [activeSettingsTab, setActiveSettingsTab] = useState<"image" | "pdf">(
     "image",
@@ -132,7 +126,6 @@ export default function MergePdfs() {
   const hasPdfs = uploadedFiles.some((f) => f.type === "pdf");
   const hasFiles = pages.length > 0;
 
-  // Close settings when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -146,40 +139,30 @@ export default function MergePdfs() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Ensure active tab defaults to available type
   useEffect(() => {
-    if (hasPdfs && !hasImages && activeSettingsTab === "image") {
+    if (hasPdfs && !hasImages && activeSettingsTab === "image")
       setActiveSettingsTab("pdf");
-    } else if (hasImages && !hasPdfs && activeSettingsTab === "pdf") {
+    else if (hasImages && !hasPdfs && activeSettingsTab === "pdf")
       setActiveSettingsTab("image");
-    }
   }, [hasImages, hasPdfs, activeSettingsTab]);
 
-  // --- Helper: Get Next Available Color ---
   const getAvailableColor = (currentFiles: UploadedFile[]) => {
     const usedColors = new Set(currentFiles.map((f) => f.color));
-    // Find first color in pool not currently used
     const available = COLOR_POOL.find((c) => !usedColors.has(c));
-    // If all used, cycle using modulo based on count
     return available || COLOR_POOL[currentFiles.length % COLOR_POOL.length];
   };
 
-  // --- Helper: Generate Filename ---
   const updateFilename = (
     currentPages: PdfPage[],
     allUploadedFiles: UploadedFile[],
   ) => {
-    // Check which unique files are still represented in the pages
     const activeFileIds = new Set(currentPages.map((p) => p.sourceFileId));
     const activeFiles = allUploadedFiles.filter((f) => activeFileIds.has(f.id));
-
     const timestamp = new Date()
       .toISOString()
       .replace(/[-:T.]/g, "")
       .slice(0, 14);
     let newName = `merged-doc-${timestamp}`;
-
-    // If exactly 2 files, try to combine names
     if (activeFiles.length === 2) {
       const name1 = activeFiles[0].fileName.replace(
         /\.(pdf|png|jpg|jpeg)$/i,
@@ -195,6 +178,37 @@ export default function MergePdfs() {
     setOutputFileName(newName);
   };
 
+  const getPageDimensions = (page: PdfPage) => {
+    let targetW, targetH;
+    if (page.type === "image") {
+      const { pageSize, orientation } = settings.image;
+      if (pageSize === "Fit") {
+        targetW = page.width;
+        targetH = page.height;
+      } else {
+        const dims = PAGE_SIZES[pageSize as "A4" | "Letter"];
+        if (orientation === "landscape") {
+          targetW = dims[1];
+          targetH = dims[0];
+        } else {
+          targetW = dims[0];
+          targetH = dims[1];
+        }
+      }
+    } else {
+      const { pageSize } = settings.pdf;
+      if (pageSize === "Original") {
+        targetW = page.width;
+        targetH = page.height;
+      } else {
+        const dims = PAGE_SIZES[pageSize as "A4" | "Letter"];
+        targetW = dims[0];
+        targetH = dims[1];
+      }
+    }
+    return { width: targetW, height: targetH };
+  };
+
   // --- Handlers ---
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,7 +219,13 @@ export default function MergePdfs() {
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!isProcessing) setIsDraggingFile(true);
+
+    // FIX: Don't activate global file drop if we are reordering pages
+    if (draggedIndex !== null) return;
+
+    if (!isProcessing && e.dataTransfer.types.includes("Files")) {
+      setIsDraggingFile(true);
+    }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -219,7 +239,14 @@ export default function MergePdfs() {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingFile(false);
-    if (!isProcessing && e.dataTransfer.files) {
+
+    // FIX: Only accept files if not reordering
+    if (
+      draggedIndex === null &&
+      !isProcessing &&
+      e.dataTransfer.files &&
+      e.dataTransfer.files.length > 0
+    ) {
       addFiles(Array.from(e.dataTransfer.files));
     }
   };
@@ -249,8 +276,6 @@ export default function MergePdfs() {
 
     const newUploadedFiles: UploadedFile[] = [];
     const newPages: PdfPage[] = [];
-
-    // We need a temp copy of existing files to calculate colors correctly within this loop
     let currentUploadedFilesState = [...uploadedFiles];
     let addedPdf = false;
     let addedImage = false;
@@ -268,9 +293,7 @@ export default function MergePdfs() {
       }
 
       try {
-        const fileId = `${Date.now()}-${Math.random()}`; // Unique ID for this specific upload
-
-        // Get color based on what we have + what we've added in this batch so far
+        const fileId = `${Date.now()}-${Math.random()}`;
         const color = getAvailableColor([
           ...currentUploadedFilesState,
           ...newUploadedFiles,
@@ -283,15 +306,14 @@ export default function MergePdfs() {
             .promise;
           const numPages = pdfDoc.numPages;
 
-          const newFileObj = {
+          newUploadedFiles.push({
             id: fileId,
             fileName: file.name,
             color,
             pageCount: numPages,
             file,
-            type: "pdf" as const,
-          };
-          newUploadedFiles.push(newFileObj);
+            type: "pdf",
+          });
 
           for (let pageNum = 1; pageNum <= numPages; pageNum++) {
             const page = await pdfDoc.getPage(pageNum);
@@ -304,7 +326,7 @@ export default function MergePdfs() {
 
             newPages.push({
               id: `${fileId}-${pageNum}`,
-              sourceFileId: fileId, // Link to parent
+              sourceFileId: fileId,
               sourceFileName: file.name,
               sourceColor: color,
               pageNumber: pageNum,
@@ -324,19 +346,18 @@ export default function MergePdfs() {
             img.onload = resolve;
           });
 
-          const newFileObj = {
+          newUploadedFiles.push({
             id: fileId,
             fileName: file.name,
             color,
             pageCount: 1,
             file,
-            type: "image" as const,
-          };
-          newUploadedFiles.push(newFileObj);
+            type: "image",
+          });
 
           newPages.push({
             id: `${fileId}-img`,
-            sourceFileId: fileId, // Link to parent
+            sourceFileId: fileId,
             sourceFileName: file.name,
             sourceColor: color,
             pageNumber: 1,
@@ -360,7 +381,6 @@ export default function MergePdfs() {
 
     const updatedPages = [...pages, ...newPages];
     const updatedFiles = [...uploadedFiles, ...newUploadedFiles];
-
     setPages(updatedPages);
     setUploadedFiles(updatedFiles);
     updateFilename(updatedPages, updatedFiles);
@@ -369,41 +389,27 @@ export default function MergePdfs() {
 
   const removePage = (pageId: string) => {
     if (isProcessing) return;
-
-    // Find the page before removing to identify its source file
     const pageToRemove = pages.find((p) => p.id === pageId);
     if (!pageToRemove) return;
-
-    // Remove the page
     const newPages = pages.filter((page) => page.id !== pageId);
     setPages(newPages);
-
-    // Check if any pages from this source file remain
     const remainingPagesFromFile = newPages.filter(
       (p) => p.sourceFileId === pageToRemove.sourceFileId,
     );
-
     let newFiles = uploadedFiles;
-    // If no pages remain, remove the file from Source Files list too
     if (remainingPagesFromFile.length === 0) {
       newFiles = uploadedFiles.filter(
         (f) => f.id !== pageToRemove.sourceFileId,
       );
       setUploadedFiles(newFiles);
     }
-
     updateFilename(newPages, newFiles);
   };
 
   const removeFile = (fileId: string) => {
     if (isProcessing) return;
-
-    // Remove all pages associated with this specific File ID
     const newPages = pages.filter((p) => p.sourceFileId !== fileId);
-
-    // Remove the file itself using ID (handles duplicates correctly)
     const newFiles = uploadedFiles.filter((f) => f.id !== fileId);
-
     setPages(newPages);
     setUploadedFiles(newFiles);
     updateFilename(newPages, newFiles);
@@ -418,10 +424,7 @@ export default function MergePdfs() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handlePageClick = (type: "image" | "pdf") => {
-    setActiveSettingsTab(type);
-  };
-
+  const handlePageClick = (type: "image" | "pdf") => setActiveSettingsTab(type);
   const handleDragStart = (index: number) => setDraggedIndex(index);
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
@@ -438,20 +441,17 @@ export default function MergePdfs() {
   const mergePdfs = async () => {
     if (pages.length === 0) return;
     setIsMerging(true);
-
     try {
       const mergedPdf = await PDFDocument.create();
       const sourcePdfCache = new Map<string, PDFDocument>();
 
       for (const page of pages) {
-        // Find file by ID to handle duplicates correctly
         const sourceFileObj = uploadedFiles.find(
           (u) => u.id === page.sourceFileId,
         );
         if (!sourceFileObj) continue;
 
         if (page.type === "pdf") {
-          // Key cache by ID so duplicates are treated as distinct sources (safer for pdf-lib)
           let sourcePdf = sourcePdfCache.get(page.sourceFileId);
           if (!sourcePdf) {
             const arrayBuffer = await sourceFileObj.file.arrayBuffer();
@@ -478,7 +478,6 @@ export default function MergePdfs() {
             const drawHeight = embeddedPage.height * scaleFactor;
             const x = (targetSize[0] - drawWidth) / 2;
             const y = (targetSize[1] - drawHeight) / 2;
-
             newPage.drawPage(embeddedPage, {
               x,
               y,
@@ -489,11 +488,9 @@ export default function MergePdfs() {
         } else if (page.type === "image") {
           const arrayBuffer = await sourceFileObj.file.arrayBuffer();
           let embeddedImage;
-          if (sourceFileObj.file.type === "image/png") {
+          if (sourceFileObj.file.type === "image/png")
             embeddedImage = await mergedPdf.embedPng(arrayBuffer);
-          } else {
-            embeddedImage = await mergedPdf.embedJpg(arrayBuffer);
-          }
+          else embeddedImage = await mergedPdf.embedJpg(arrayBuffer);
 
           const imgDims = embeddedImage.scale(1);
           let pageWidth, pageHeight;
@@ -512,9 +509,7 @@ export default function MergePdfs() {
               pageHeight = rawSize[1];
             }
           }
-
           const newPage = mergedPdf.addPage([pageWidth, pageHeight]);
-
           if (settings.image.pageSize === "Fit") {
             newPage.drawImage(embeddedImage, {
               x: 0,
@@ -534,7 +529,6 @@ export default function MergePdfs() {
             const drawHeight = imgDims.height * scaleFactor;
             const x = (pageWidth - drawWidth) / 2;
             const y = (pageHeight - drawHeight) / 2;
-
             newPage.drawImage(embeddedImage, {
               x,
               y,
@@ -544,14 +538,12 @@ export default function MergePdfs() {
           }
         }
       }
-
       const pdfBytes = await mergedPdf.save();
       const blob = new Blob([pdfBytes], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       let fileName = outputFileName.trim();
       if (!fileName) fileName = `merged-doc-${Date.now()}`;
       if (!fileName.toLowerCase().endsWith(".pdf")) fileName += ".pdf";
-
       const link = document.createElement("a");
       link.href = url;
       link.download = fileName;
@@ -580,7 +572,6 @@ export default function MergePdfs() {
       </Link>
 
       <div className="w-full">
-        {/* Hidden Input */}
         <input
           type="file"
           ref={fileInputRef}
@@ -589,7 +580,6 @@ export default function MergePdfs() {
           onChange={handleFileSelect}
           multiple
         />
-
         {error && (
           <p className="text-red-500 text-sm mb-4 font-medium text-center">
             {error}
@@ -597,7 +587,6 @@ export default function MergePdfs() {
         )}
 
         {!hasFiles ? (
-          // --- Empty State ---
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
             <h1 className="text-2xl font-bold text-gray-800 mb-2 text-center">
               Merge PDFs & Images
@@ -605,7 +594,6 @@ export default function MergePdfs() {
             <p className="text-gray-500 mb-8 text-center">
               Upload PDFs or Images, reorder pages, and merge into one document.
             </p>
-
             <div className="relative">
               <div
                 tabIndex={isProcessing ? -1 : 0}
@@ -614,12 +602,7 @@ export default function MergePdfs() {
                 onClick={handleUploadClick}
                 onDragOver={handleDragEnter}
                 onDrop={handleDrop}
-                className={`
-                  relative border-2 border-dashed border-gray-300 bg-gray-50 rounded-xl p-12 mb-6 hover:bg-gray-100 hover:border-blue-400
-                  transition-all cursor-pointer outline-none group
-                  focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-                  ${isProcessing ? "opacity-50 pointer-events-none grayscale" : ""}
-                `}
+                className={`relative border-2 border-dashed border-gray-300 bg-gray-50 rounded-xl p-12 mb-6 hover:bg-gray-100 hover:border-blue-400 transition-all cursor-pointer outline-none group focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${isProcessing ? "opacity-50 pointer-events-none grayscale" : ""}`}
               >
                 <div className="flex flex-col items-center">
                   <div className="mx-auto h-12 w-12 text-gray-400 mb-3 group-hover:text-blue-500 transition-colors">
@@ -633,8 +616,6 @@ export default function MergePdfs() {
                   </span>
                 </div>
               </div>
-
-              {/* Empty State Loader Overlay */}
               {isProcessing && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 rounded-xl backdrop-blur-sm">
                   <Loader2
@@ -650,7 +631,6 @@ export default function MergePdfs() {
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-8 items-start">
-            {/* --- Left Column: Content (Scrolls & Drop Zone) --- */}
             <div
               className={`flex-1 w-full min-w-0 transition-colors rounded-xl relative ${isDraggingFile ? "ring-4 ring-blue-400 bg-blue-50" : ""}`}
               onDragEnter={handleDragEnter}
@@ -658,7 +638,6 @@ export default function MergePdfs() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
             >
-              {/* Drop Overlay Hint */}
               {isDraggingFile && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 rounded-xl backdrop-blur-sm pointer-events-none">
                   <div className="text-center text-blue-600">
@@ -672,8 +651,6 @@ export default function MergePdfs() {
                   </div>
                 </div>
               )}
-
-              {/* Active State Loader Overlay */}
               {isProcessing && (
                 <div className="absolute inset-0 z-50 flex justify-center bg-white/60 backdrop-blur-[2px] rounded-xl cursor-wait">
                   <div className="sticky top-1/2 h-fit -translate-y-1/2 flex flex-col items-center p-6 bg-white rounded-2xl shadow-xl border border-gray-100">
@@ -687,15 +664,12 @@ export default function MergePdfs() {
                   </div>
                 </div>
               )}
-
-              {/* Sticky Glassy Header */}
               <div className="lg:sticky lg:top-24 z-30 mb-6">
                 <div className="absolute -top-12 left-0 right-0 h-12 bg-gradient-to-b from-gray-50/0 to-gray-50/90 pointer-events-none" />
-
                 <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4 bg-white/90 backdrop-blur-md p-4 rounded-xl border border-white/50 shadow-md">
                   <div>
                     <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                      Merge PDFs & Images
+                      Merge PDFs & Images{" "}
                       <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
                         {pages.length} Pages
                       </span>
@@ -704,7 +678,6 @@ export default function MergePdfs() {
                       Drag pages to reorder. Drop new files anywhere.
                     </p>
                   </div>
-
                   <div className="flex items-center gap-3">
                     <ZoomOut size={16} className="text-gray-500" />
                     <input
@@ -721,11 +694,14 @@ export default function MergePdfs() {
                 </div>
               </div>
 
-              {/* Page Grid */}
               <div className="flex flex-wrap gap-4 p-6 bg-white rounded-xl border border-gray-200 shadow-sm min-h-[400px] content-start items-start justify-center lg:justify-start">
                 {pages.map((page, index) => {
                   const displayWidth = baseWidth * scale;
                   const truncatedName = truncateFilename(page.sourceFileName);
+                  const { width: targetW, height: targetH } =
+                    getPageDimensions(page);
+                  const aspectRatio = targetW / targetH;
+                  const displayHeight = displayWidth / aspectRatio;
 
                   return (
                     <div
@@ -735,11 +711,8 @@ export default function MergePdfs() {
                       onDragStart={() => handleDragStart(index)}
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDragEnd={handleDragEnd}
-                      className={`
-                          relative group cursor-pointer flex flex-col bg-white rounded-sm shadow-md transition-all shrink-0
-                          ${draggedIndex === index ? "opacity-50 scale-105 border-2 border-blue-400" : "border border-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-200"}
-                          ${activeSettingsTab === page.type ? "ring-2 ring-blue-100 border-blue-200" : ""}
-                        `}
+                      // FIX: Changed cursor-pointer to cursor-grab
+                      className={`relative group cursor-grab active:cursor-grabbing flex flex-col bg-white rounded-sm shadow-md transition-all shrink-0 ${draggedIndex === index ? "opacity-50 scale-105 border-2 border-blue-400" : "border border-gray-200 hover:shadow-lg hover:ring-2 hover:ring-blue-200"} ${activeSettingsTab === page.type ? "ring-2 ring-blue-100 border-blue-200" : ""}`}
                       style={{ width: `${displayWidth}px` }}
                       title={`${page.sourceFileName} (${page.type.toUpperCase()}) - Page ${page.pageNumber}`}
                     >
@@ -749,7 +722,6 @@ export default function MergePdfs() {
                       >
                         {index + 1}
                       </div>
-
                       <div className="absolute top-2 right-2 z-10 bg-white/90 p-1 rounded-md shadow-sm">
                         {page.type === "image" ? (
                           <ImageIcon size={12} className="text-purple-600" />
@@ -757,7 +729,6 @@ export default function MergePdfs() {
                           <FileText size={12} className="text-blue-600" />
                         )}
                       </div>
-
                       <div className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity z-20">
                         <button
                           onClick={(e) => {
@@ -769,41 +740,33 @@ export default function MergePdfs() {
                           <X size={14} />
                         </button>
                       </div>
-
-                      <div className="w-full h-full bg-gray-100 overflow-hidden rounded-sm relative">
+                      <div
+                        className="bg-gray-100 overflow-hidden rounded-sm relative flex items-center justify-center"
+                        style={{ height: `${displayHeight}px` }}
+                      >
                         <img
                           src={page.thumbnailDataUrl}
                           alt={`Page ${page.pageNumber}`}
-                          className="w-full h-auto block"
+                          className="w-full h-full object-contain block"
                           draggable={false}
                         />
                       </div>
-
                       <div className="p-2 border-t border-gray-100 bg-white text-center">
                         <p className="text-[10px] text-gray-700 font-medium truncate">
                           {truncatedName}
                         </p>
-                        {page.type === "pdf" && (
-                          <p className="text-[9px] text-gray-400 mt-0.5">
-                            Page {page.pageNumber} / {page.totalPages}
-                          </p>
-                        )}
-                        {page.type === "image" && (
-                          <p className="text-[9px] text-gray-400 mt-0.5">
-                            Image
-                          </p>
-                        )}
+                        <p className="text-[9px] text-gray-400 mt-0.5">
+                          {page.type === "pdf"
+                            ? `Page ${page.pageNumber} / ${page.totalPages}`
+                            : "Image"}
+                        </p>
                       </div>
                     </div>
                   );
                 })}
-
                 <div
                   onClick={handleUploadClick}
-                  className={`
-                      flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white
-                      hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-400 transition-all shrink-0 cursor-pointer
-                    `}
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 text-gray-400 transition-all shrink-0 cursor-pointer`}
                   style={{
                     width: `${baseWidth * scale}px`,
                     height: `${baseWidth * scale * 1.414}px`,
@@ -815,14 +778,13 @@ export default function MergePdfs() {
               </div>
             </div>
 
-            {/* --- Right Column: Sticky Actions --- */}
+            {/* --- Right Column --- */}
             <div className="w-full lg:w-80 shrink-0 lg:sticky lg:top-24 space-y-4 h-fit">
-              {/* 1. Source Files List */}
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
                 <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                   <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-2">
-                    <FileIcon size={14} className="text-gray-500" />
-                    Source Files
+                    <FileIcon size={14} className="text-gray-500" /> Source
+                    Files
                   </h3>
                   <button
                     onClick={handleUploadClick}
@@ -832,7 +794,6 @@ export default function MergePdfs() {
                     <Plus size={12} /> Add
                   </button>
                 </div>
-
                 <div className="max-h-[220px] overflow-y-auto p-2 space-y-2 custom-scrollbar">
                   {uploadedFiles.map((file) => (
                     <div
@@ -871,7 +832,6 @@ export default function MergePdfs() {
                 </div>
               </div>
 
-              {/* 2. Clear All */}
               {!showClearConfirm ? (
                 <button
                   onClick={() => !isProcessing && setShowClearConfirm(true)}
@@ -900,13 +860,11 @@ export default function MergePdfs() {
                 </div>
               )}
 
-              {/* 3. Merge Actions Card */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                 <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
-                  <CheckCircle size={16} className="text-blue-600" />
-                  Merge & Download
+                  <CheckCircle size={16} className="text-blue-600" /> Merge &
+                  Download
                 </h3>
-
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1.5">
                     Filename
@@ -930,27 +888,21 @@ export default function MergePdfs() {
                     </div>
                   </div>
                 </div>
-
                 <button
                   onClick={mergePdfs}
                   disabled={isMerging || isProcessing}
-                  className={`
-                      w-full font-semibold py-2.5 px-4 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 text-sm
-                      ${isMerging || isProcessing ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md active:scale-95"}
-                    `}
+                  className={`w-full font-semibold py-2.5 px-4 rounded-lg shadow-sm transition-all flex items-center justify-center gap-2 text-sm ${isMerging || isProcessing ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md active:scale-95"}`}
                 >
                   {isMerging ? "Merging..." : "Download PDF"}
                 </button>
               </div>
 
-              {/* 4. Settings Card */}
               <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                 <div className="flex justify-between items-center border-b border-gray-100 pb-2">
                   <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
-                    <Settings size={16} className="text-gray-600" />
+                    <Settings size={16} className="text-gray-600" />{" "}
                     Configuration
                   </h3>
-
                   {canSwitchSettings && (
                     <div className="relative" ref={settingsRef}>
                       <button
@@ -980,7 +932,6 @@ export default function MergePdfs() {
                     </div>
                   )}
                 </div>
-
                 <div className="text-xs font-medium text-gray-500 mb-2">
                   Configuring:{" "}
                   <span className="text-gray-800">
@@ -989,7 +940,6 @@ export default function MergePdfs() {
                       : "PDF Files"}
                   </span>
                 </div>
-
                 {activeSettingsTab === "image" ? (
                   <div className="space-y-4 animate-fade-in">
                     <div>
@@ -1024,7 +974,6 @@ export default function MergePdfs() {
                         ))}
                       </div>
                     </div>
-
                     {settings.image.pageSize !== "Fit" && (
                       <div>
                         <label className="block text-xs font-medium text-gray-400 mb-2">
@@ -1041,11 +990,7 @@ export default function MergePdfs() {
                                 },
                               }))
                             }
-                            className={`flex items-center justify-center gap-1 py-1.5 text-xs rounded border transition-all ${
-                              settings.image.orientation === "portrait"
-                                ? "bg-blue-50 text-blue-700 border-blue-200 font-medium"
-                                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                            }`}
+                            className={`flex items-center justify-center gap-1 py-1.5 text-xs rounded border transition-all ${settings.image.orientation === "portrait" ? "bg-blue-50 text-blue-700 border-blue-200 font-medium" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
                           >
                             <RectangleVertical size={12} /> Portrait
                           </button>
@@ -1059,11 +1004,7 @@ export default function MergePdfs() {
                                 },
                               }))
                             }
-                            className={`flex items-center justify-center gap-1 py-1.5 text-xs rounded border transition-all ${
-                              settings.image.orientation === "landscape"
-                                ? "bg-blue-50 text-blue-700 border-blue-200 font-medium"
-                                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-                            }`}
+                            className={`flex items-center justify-center gap-1 py-1.5 text-xs rounded border transition-all ${settings.image.orientation === "landscape" ? "bg-blue-50 text-blue-700 border-blue-200 font-medium" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
                           >
                             <RectangleHorizontal size={12} /> Landscape
                           </button>
