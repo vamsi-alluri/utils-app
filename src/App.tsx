@@ -7,6 +7,7 @@ import Footer from "@/components/Footer";
 import Loader from "@/components/Loader";
 import SuspenseWithProgress from "@/components/SuspenseWithProgress";
 import { User as UserIcon } from "lucide-react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // Lazy load utility modules
 const JdScreener = lazy(() => import("@/utilities/jdScreener/App"));
@@ -153,6 +154,7 @@ function App() {
 
         <Footer />
       </div>
+      <SpeedInsights />
     </BrowserRouter>
   );
 }
