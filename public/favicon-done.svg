@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg-gradient-done" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981"/>
+      <stop offset="100%" style="stop-color:#059669"/>
+    </linearGradient>
+    <linearGradient id="sparkle-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FBBF24"/>
+      <stop offset="100%" style="stop-color:#F59E0B"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square (green for success) -->
+  <rect width="64" height="64" rx="14" fill="url(#bg-gradient-done)">
+    <animate
+      attributeName="opacity"
+      values="1;0.8;1"
+      dur="1s"
+      repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Checkmark -->
+  <g transform="translate(32, 32)">
+    <path d="M-10 0 L-3 7 L12 -8" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Sparkle 1 -->
+  <g transform="translate(48, 16)">
+    <path d="M0 -6 L2 0 L6 0 L2 4 L4 8 L0 5 L-4 8 L-2 4 L-6 0 L-2 0 Z" fill="url(#sparkle-gradient)">
+      <animate
+        attributeName="opacity"
+        values="0;1;0"
+        dur="0.8s"
+        repeatCount="indefinite"/>
+      <animateTransform
+        attributeName="transform"
+        type="scale"
+        values="0.8;1.2;0.8"
+        dur="0.8s"
+        repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- Sparkle 2 -->
+  <g transform="translate(52, 44)">
+    <path d="M0 -4 L1.5 0 L4 0 L1.5 3 L3 6 L0 4 L-3 6 L-1.5 3 L-4 0 L-1.5 0 Z" fill="url(#sparkle-gradient)">
+      <animate
+        attributeName="opacity"
+        values="0;1;0"
+        dur="1s"
+        repeatCount="indefinite"
+        begin="0.3s"/>
+      <animateTransform
+        attributeName="transform"
+        type="scale"
+        values="0.6;1;0.6"
+        dur="1s"
+        repeatCount="indefinite"
+        begin="0.3s"/>
+    </path>
+  </g>
+
+  <!-- Sparkle 3 -->
+  <g transform="translate(12, 52)">
+    <path d="M0 -5 L1.5 0 L5 0 L1.5 3.5 L3 7 L0 4.5 L-3 7 L-1.5 3.5 L-5 0 L-1.5 0 Z" fill="url(#sparkle-gradient)">
+      <animate
+        attributeName="opacity"
+        values="0;1;0"
+        dur="1.2s"
+        repeatCount="indefinite"
+        begin="0.5s"/>
+      <animateTransform
+        attributeName="transform"
+        type="scale"
+        values="0.7;1.1;0.7"
+        dur="1.2s"
+        repeatCount="indefinite"
+        begin="0.5s"/>
+    </path>
+  </g>
+</svg>
