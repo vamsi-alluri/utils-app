@@ -1,50 +1,144 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Sparkles } from "lucide-react"; // <--- Import from lucide-react
+import { Sparkles } from "lucide-react";
 import { config } from "@/config";
-import { getToken } from "@/helpers/firebase";
+import { fetchWithRetry } from "@/helpers/api";
+import {
+  setFaviconLoading,
+  setFaviconDone,
+  resetFavicon,
+} from "@/helpers/favicon";
+import { playNotificationSound } from "@/helpers/notificationSound";
 import Loader from "@/components/Loader";
+
+interface JdScreenerResponse {
+  markdown: string;
+  resume_count: number;
+  model: string;
+  timestamp: string;
+}
+
+interface AnalysisMetadata {
+  resumeCount: number;
+  model: string;
+  timestamp: string;
+}
 
 export default function JdScreener() {
   const [jd, setJd] = useState("");
   const [response, setResponse] = useState("");
   const [loading, setLoading] = useState(false);
+  const [metadata, setMetadata] = useState<AnalysisMetadata | null>(null);
+  const [hasSeenResponse, setHasSeenResponse] = useState(false);
+
+  // Reset favicon when component unmounts
+  useEffect(() => {
+    return () => {
+      resetFavicon();
+    };
+  }, []);
+
+  // Track page visibility to reset notification state when user views the page
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        response &&
+        !hasSeenResponse
+      ) {
+        // User has returned to the page, mark as seen
+        setHasSeenResponse(true);
+        resetFavicon();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [response, hasSeenResponse]);
+
+  // Mark response as seen when user scrolls or interacts
+  useEffect(() => {
+    if (response && !hasSeenResponse) {
+      const handleInteraction = () => {
+        setHasSeenResponse(true);
+        resetFavicon();
+      };
+
+      // Add listeners for user interaction
+      window.addEventListener("scroll", handleInteraction, { once: true });
+      window.addEventListener("click", handleInteraction, { once: true });
+      window.addEventListener("keydown", handleInteraction, { once: true });
+
+      return () => {
+        window.removeEventListener("scroll", handleInteraction);
+        window.removeEventListener("click", handleInteraction);
+        window.removeEventListener("keydown", handleInteraction);
+      };
+    }
+  }, [response, hasSeenResponse]);
 
   const analyzeJD = async () => {
     if (!jd) return;
     setLoading(true);
     setResponse("");
+    setMetadata(null);
+    setHasSeenResponse(false);
+
+    // Set loading favicon
+    setFaviconLoading();
 
     try {
-      const token = await getToken();
+      const result = await fetchWithRetry<JdScreenerResponse>(
+        config.api.jdScreenerUrl,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jd }),
+          retries: 2,
+          retryDelay: 1000,
+        },
+      );
 
-      if (!token) {
-        setResponse("Error: You are not authenticated.");
-        setLoading(false);
+      if (result.error) {
+        if (
+          result.error.includes("Auth") ||
+          result.status === 401 ||
+          result.status === 403
+        ) {
+          setResponse(
+            "Authentication error. Please try logging out and back in.",
+          );
+        } else if (result.status && result.status >= 500) {
+          setResponse("Server error. Please try again in a moment.");
+        } else {
+          setResponse(`Error: ${result.error}. Please try again.`);
+        }
+        // Reset favicon on error
+        resetFavicon();
         return;
       }
 
-      const res = await fetch(config.api.jdScreenerUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ jd: jd }),
-      });
+      if (result.data) {
+        setResponse(result.data.markdown);
+        setMetadata({
+          resumeCount: result.data.resume_count,
+          model: result.data.model,
+          timestamp: result.data.timestamp,
+        });
 
-      if (!res.ok) {
-        throw new Error(`Server responded with ${res.status}`);
+        // Play notification sound and set done favicon
+        playNotificationSound();
+        setFaviconDone();
       }
-
-      const data = await res.json();
-      setResponse(data.markdown);
     } catch (error) {
       console.error(error);
       setResponse(
-        "Error contacting the bot. Please ensure you are logged in and try again.",
+        "Unexpected error occurred. Please ensure you are logged in and try again.",
       );
+      resetFavicon();
     } finally {
       setLoading(false);
     }
@@ -59,6 +153,20 @@ export default function JdScreener() {
           Paste a job description below to get an AI-analyzed compatibility
           report.
         </p>
+        {metadata && (
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-gray-500">
+            <span>
+              Resumes analyzed:{" "}
+              <strong className="text-gray-700">{metadata.resumeCount}</strong>
+            </span>
+            <span>
+              Model: <strong className="text-gray-700">{metadata.model}</strong>
+            </span>
+            <span className="text-gray-400">
+              {new Date(metadata.timestamp).toLocaleString()}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Input Section */}
