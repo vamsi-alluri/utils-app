@@ -2,7 +2,7 @@
 
 import { Link } from "react-router-dom";
 // Importing icons from the new package
-import { File, FileText, Layers2 } from "lucide-react";
+import { File, FileText, Layers2, Scissors } from "lucide-react";
 
 export default function PdfHome() {
   const tools = [
@@ -31,6 +31,14 @@ export default function PdfHome() {
       path: "mergePdfs",
       color: "bg-green-50 text-green-600 hover:border-green-200",
       icon: <Layers2 size={32} />,
+    },
+    {
+      id: "split",
+      title: "Split PDF",
+      desc: "Extract pages or split a PDF into individual files.",
+      path: "splitPdf",
+      color: "bg-purple-50 text-purple-600 hover:border-purple-200",
+      icon: <Scissors size={32} />,
     },
   ];
 

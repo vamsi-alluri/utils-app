@@ -8,6 +8,7 @@ const PdfHome = lazy(() => import("./pages/pdfHome"));
 const JpgToPdf = lazy(() => import("./pages/jpgToPdf"));
 const PdfToJpg = lazy(() => import("./pages/pdfToJpg"));
 const MergePdfs = lazy(() => import("./pages/MergePdfs"));
+const SplitPdf = lazy(() => import("./pages/SplitPdf"));
 
 export default function PdfToolsApp() {
   return (
@@ -17,6 +18,7 @@ export default function PdfToolsApp() {
         <Route path="/j2p" element={<JpgToPdf />} />
         <Route path="/p2j" element={<PdfToJpg />} />
         <Route path="/mergePdfs" element={<MergePdfs />} />
+        <Route path="/splitPdf" element={<SplitPdf />} />
       </Routes>
     </SuspenseWithProgress>
   );
