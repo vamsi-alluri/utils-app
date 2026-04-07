@@ -1,19 +1,16 @@
 import { initializeApp } from "firebase/app";
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut,
-} from "firebase/auth";
+import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 import { config } from "@/config";
 
 const firebaseApp = initializeApp(config.firebase);
-
-export const auth = getAuth(firebaseApp);
 export const provider = new GoogleAuthProvider();
 
-export const loginWithGoogle = () => signInWithPopup(auth, provider);
-export const logout = () => signOut(auth);
+// Lazy — getAuth() (and the auth iframe) only runs on first call
+let _auth: Auth | null = null;
+export const getFirebaseAuth = (): Auth => {
+  if (!_auth) _auth = getAuth(firebaseApp);
+  return _auth;
+};
 
 // Token cache to minimize unnecessary refreshes
 let cachedToken: string | null = null;
@@ -29,6 +26,7 @@ const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes before expiry
 export const getToken = async (
   forceRefresh = false,
 ): Promise<string | null> => {
+  const auth = getFirebaseAuth();
   if (!auth.currentUser) return null;
 
   const now = Date.now();
@@ -40,7 +38,6 @@ export const getToken = async (
 
   if (needsRefresh) {
     cachedToken = await auth.currentUser.getIdToken(true);
-    // Firebase tokens expire after 1 hour
     tokenExpiryTime = now + 60 * 60 * 1000;
   }
 

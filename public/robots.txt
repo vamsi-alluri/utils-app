@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /pdf/
+Allow: /image/
+Allow: /privacy
+Allow: /terms
+
+# Auth-gated — no value to crawlers
+Disallow: /jd-screener
+
+Sitemap: https://utils.vamsi-alluri.me/sitemap.xml
