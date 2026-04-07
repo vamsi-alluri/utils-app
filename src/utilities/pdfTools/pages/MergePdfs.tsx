@@ -193,6 +193,7 @@ export default function MergePdfs() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [isDragRejected, setIsDragRejected] = useState(false);
 
   const [draggedFileIndex, setDraggedFileIndex] = useState<number | null>(null);
 
@@ -323,12 +324,29 @@ export default function MergePdfs() {
     if (e.target.files) addFiles(Array.from(e.target.files));
   };
 
+  const isValidMergeDrag = (e: React.DragEvent) => {
+    const items = Array.from(e.dataTransfer.items);
+    if (!items.length) return true;
+    return items.every(i =>
+      i.kind === "file" &&
+      (i.type === "application/pdf" || i.type === "image/png" || /image\/jpe?g/.test(i.type))
+    );
+  };
+
   const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
     e.stopPropagation();
     if (draggedIndex !== null || draggedFileIndex !== null) return;
-    if (!isProcessing && e.dataTransfer.types.includes("Files"))
-      setIsDraggingFile(true);
+    if (!isProcessing && e.dataTransfer.types.includes("Files")) {
+      if (isValidMergeDrag(e)) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setIsDraggingFile(true);
+        setIsDragRejected(false);
+      } else {
+        setIsDraggingFile(false);
+        setIsDragRejected(true);
+      }
+    }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -336,12 +354,14 @@ export default function MergePdfs() {
     e.stopPropagation();
     if (e.currentTarget.contains(e.relatedTarget as Node)) return;
     setIsDraggingFile(false);
+    setIsDragRejected(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingFile(false);
+    setIsDragRejected(false);
     if (
       draggedIndex === null &&
       draggedFileIndex === null &&
@@ -806,17 +826,19 @@ export default function MergePdfs() {
                 onClick={handleUploadClick}
                 onDragOver={handleDragEnter}
                 onDrop={handleDrop}
-                className={`relative border-2 border-dashed border-gray-300 bg-gray-50 rounded-xl p-12 mb-6 hover:bg-gray-100 hover:border-blue-400 transition-all cursor-pointer outline-none group focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${isProcessing ? "opacity-50 pointer-events-none grayscale" : ""}`}
+                className={`relative border-2 border-dashed rounded-xl p-12 mb-6 transition-all outline-none group focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                  ${isProcessing ? "opacity-50 pointer-events-none grayscale" : ""}
+                  ${isDragRejected ? "border-red-400 bg-red-50 cursor-not-allowed" : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400 cursor-pointer"}`}
               >
                 <div className="flex flex-col items-center">
-                  <div className="mx-auto h-12 w-12 text-gray-400 mb-3 group-hover:text-blue-500 transition-colors">
+                  <div className={`mx-auto h-12 w-12 mb-3 transition-colors ${isDragRejected ? "text-red-400" : "text-gray-400 group-hover:text-blue-500"}`}>
                     <UploadCloud size={48} />
                   </div>
-                  <span className="block text-sm font-medium text-gray-700">
-                    Click to upload files
+                  <span className={`block text-sm font-medium ${isDragRejected ? "text-red-500" : "text-gray-700"}`}>
+                    {isDragRejected ? "PDF, JPG, PNG only — other files not accepted" : "Click to upload files"}
                   </span>
                   <span className="block text-xs text-gray-400 mt-1">
-                    PDF, JPG, PNG supported
+                    {isDragRejected ? "" : "PDF, JPG, PNG supported"}
                   </span>
                 </div>
               </div>
@@ -836,12 +858,21 @@ export default function MergePdfs() {
         ) : (
           <div className="flex flex-col lg:flex-row gap-8 items-start">
             <div
-              className={`flex-1 w-full min-w-0 transition-colors rounded-xl relative ${isDraggingFile ? "ring-4 ring-blue-400 bg-blue-50" : ""}`}
+              className={`flex-1 w-full min-w-0 transition-colors rounded-xl relative ${isDragRejected ? "ring-4 ring-red-400 bg-red-50" : isDraggingFile ? "ring-4 ring-blue-400 bg-blue-50" : ""}`}
               onDragEnter={handleDragEnter}
               onDragLeave={handleDragLeave}
-              onDragOver={(e) => e.preventDefault()}
+              onDragOver={handleDragEnter}
               onDrop={handleDrop}
             >
+              {isDragRejected && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 rounded-xl backdrop-blur-sm pointer-events-none">
+                  <div className="text-center text-red-500">
+                    <UploadCloud size={64} className="mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold">File type not accepted</h2>
+                    <p className="text-sm mt-1">PDF, JPG, PNG only</p>
+                  </div>
+                </div>
+              )}
               {isDraggingFile && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 rounded-xl backdrop-blur-sm pointer-events-none">
                   <div className="text-center text-blue-600">

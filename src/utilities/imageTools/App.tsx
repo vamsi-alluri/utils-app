@@ -72,26 +72,20 @@ export default function ImageTools() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isResizing, setIsResizing] = useState<string | null>(null);
+  const [isFileDragOver, setIsFileDragOver] = useState(false);
+  const [isDragRejected, setIsDragRejected] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const loadImageFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
         setImage(img);
-        setCropArea({
-          x: 0,
-          y: 0,
-          width: img.width,
-          height: img.height,
-        });
+        setCropArea({ x: 0, y: 0, width: img.width, height: img.height });
         setResizeDimensions({
           width: convertFromPixels(img.width, unit),
           height: convertFromPixels(img.height, unit),
@@ -101,6 +95,38 @@ export default function ImageTools() {
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) loadImageFile(file);
+  };
+
+  const isImageDrag = (e: React.DragEvent) => {
+    const items = Array.from(e.dataTransfer.items);
+    if (items.length === 0) return true; // can't determine, allow
+    return items.every((item) => item.kind === "file" && item.type.startsWith("image/"));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (isImageDrag(e)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setIsFileDragOver(true);
+      setIsDragRejected(false);
+    } else {
+      // No preventDefault → browser shows full no-drop cursor; drop event won't fire
+      setIsFileDragOver(false);
+      setIsDragRejected(true);
+    }
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsFileDragOver(false);
+    setIsDragRejected(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith("image/")) loadImageFile(file);
   };
 
   const handleAspectRatioChange = (ratio: AspectRatio) => {
@@ -410,34 +436,65 @@ export default function ImageTools() {
         <div className="p-6">
           {!image ? (
             /* Upload Area */
-            <div className="text-center py-16">
+            <div
+              onClick={() => !isDragRejected && fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={() => { setIsFileDragOver(false); setIsDragRejected(false); }}
+              onDrop={handleFileDrop}
+              className={`relative border-2 rounded-xl p-12 transition-all text-center ${
+                isDragRejected
+                  ? "border-dashed border-red-400 bg-red-50 cursor-not-allowed"
+                  : "border-transparent cursor-pointer bg-gray-50 hover:bg-gray-100"
+              }`}
+            >
+              {/* SVG gradient dashed border — only when not rejected */}
+              {!isDragRejected && (
+                <svg
+                  className="absolute inset-0 w-full h-full pointer-events-none"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <linearGradient
+                      id="upload-border-grad"
+                      x1="0" y1="0" x2="1" y2="0"
+                      gradientUnits="objectBoundingBox"
+                    >
+                      <stop offset="0%" style={{ stopColor: "var(--color-purple-600)" }} />
+                      <stop offset="100%" style={{ stopColor: "var(--color-blue-600)" }} />
+                    </linearGradient>
+                  </defs>
+                  <rect
+                    x="1" y="1"
+                    style={{ width: "calc(100% - 2px)", height: "calc(100% - 2px)" }}
+                    rx="11" ry="11"
+                    fill={isFileDragOver ? "var(--color-purple-50)" : "none"}
+                    stroke="url(#upload-border-grad)"
+                    strokeWidth="2"
+                    strokeDasharray="8 5"
+                  />
+                </svg>
+              )}
+
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 onChange={handleFileUpload}
                 className="hidden"
-                id="image-upload"
               />
-              <label
-                htmlFor="image-upload"
-                className="inline-flex flex-col items-center gap-4 cursor-pointer"
-              >
-                <div className="w-24 h-24 rounded-full bg-purple-100 flex items-center justify-center">
-                  <Upload className="w-12 h-12 text-purple-600" />
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-r from-purple-600 to-blue-600 flex items-center justify-center">
+                  <Upload className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <p className="text-lg font-semibold text-gray-900 mb-1">
-                    Upload an image
+                  <p className={`text-sm font-medium ${isDragRejected ? "text-red-500" : "text-gray-700"}`}>
+                    {isDragRejected ? "Images only — other files not accepted" : "Click to upload an image"}
                   </p>
-                  <p className="text-sm text-gray-500">
-                    Click to browse or drag and drop
+                  <p className="text-xs text-gray-400 mt-1">
+                    {isDragRejected ? "" : "or drag and drop here"}
                   </p>
                 </div>
-                <button className="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors shadow-sm">
-                  Choose File
-                </button>
-              </label>
+              </div>
             </div>
           ) : (
             <div className="space-y-6">

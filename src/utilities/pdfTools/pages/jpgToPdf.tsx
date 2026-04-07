@@ -23,6 +23,7 @@ export default function JpgToPdf() {
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState("");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [isDragRejected, setIsDragRejected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Handlers ---
@@ -33,8 +34,21 @@ export default function JpgToPdf() {
     }
   };
 
+  const handleUploadZoneDragOver = (e: React.DragEvent) => {
+    const items = Array.from(e.dataTransfer.items);
+    const valid = !items.length || items.every(i => i.kind === "file" && /image\/jpe?g/.test(i.type));
+    if (valid) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setIsDragRejected(false);
+    } else {
+      setIsDragRejected(true);
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setIsDragRejected(false);
     if (e.dataTransfer.files) {
       addFiles(Array.from(e.dataTransfer.files));
     }
@@ -199,12 +213,18 @@ export default function JpgToPdf() {
 
         {/* --- Upload Zone --- */}
         <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
+          onClick={() => !isDragRejected && fileInputRef.current?.click()}
+          onDragOver={handleUploadZoneDragOver}
+          onDragLeave={() => setIsDragRejected(false)}
           onDrop={handleDrop}
           className={`
-            relative border-2 border-dashed rounded-xl p-12 transition-all cursor-pointer mb-6
-            ${error ? "border-red-300 bg-red-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-red-400"}
+            relative border-2 border-dashed rounded-xl p-12 transition-all mb-6
+            ${isDragRejected
+              ? "border-red-400 bg-red-50 cursor-not-allowed"
+              : error
+                ? "border-red-300 bg-red-50 cursor-pointer"
+                : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-red-400 cursor-pointer"
+            }
           `}
         >
           <div className="flex flex-col items-center">
@@ -212,12 +232,12 @@ export default function JpgToPdf() {
               <UploadCloud size={48} />
             </div>
             <span className="block text-sm font-medium text-gray-700">
-              Click to upload JPG images
+              {isDragRejected ? "JPG/JPEG only — other files not accepted" : "Click to upload JPG images"}
             </span>
             <span className="block text-xs text-gray-400 mt-1">
-              or drag and drop multiple files here
+              {isDragRejected ? "" : "or drag and drop multiple files here"}
             </span>
-            {images.length > 0 && (
+            {!isDragRejected && images.length > 0 && (
               <span className="block text-sm text-red-600 font-medium mt-2">
                 {images.length} image{images.length > 1 ? "s" : ""} selected
               </span>

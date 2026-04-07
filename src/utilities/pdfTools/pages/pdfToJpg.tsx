@@ -31,6 +31,7 @@ export default function PdfToJpg() {
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState("");
   const [quality, setQuality] = useState(0.92);
+  const [isDragRejected, setIsDragRejected] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Handlers ---
@@ -41,8 +42,21 @@ export default function PdfToJpg() {
     }
   };
 
+  const handleUploadZoneDragOver = (e: React.DragEvent) => {
+    const items = Array.from(e.dataTransfer.items);
+    const valid = !items.length || items.every(i => i.kind === "file" && i.type === "application/pdf");
+    if (valid) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setIsDragRejected(false);
+    } else {
+      setIsDragRejected(true);
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setIsDragRejected(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       validateAndSetFile(e.dataTransfer.files[0]);
     }
@@ -185,12 +199,18 @@ export default function PdfToJpg() {
 
         {/* --- Upload Zone --- */}
         <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
+          onClick={() => !isDragRejected && fileInputRef.current?.click()}
+          onDragOver={handleUploadZoneDragOver}
+          onDragLeave={() => setIsDragRejected(false)}
           onDrop={handleDrop}
           className={`
-            relative border-2 border-dashed rounded-xl p-12 transition-all cursor-pointer mb-6
-            ${error ? "border-red-300 bg-red-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400"}
+            relative border-2 border-dashed rounded-xl p-12 transition-all mb-6
+            ${isDragRejected
+              ? "border-red-400 bg-red-50 cursor-not-allowed"
+              : error
+                ? "border-red-300 bg-red-50 cursor-pointer"
+                : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-blue-400 cursor-pointer"
+            }
           `}
         >
           {file ? (
@@ -217,6 +237,15 @@ export default function PdfToJpg() {
               >
                 <X size={24} />
               </button>
+            </div>
+          ) : isDragRejected ? (
+            <div className="flex flex-col items-center">
+              <div className="mx-auto h-12 w-12 text-red-400 mb-3">
+                <UploadCloud size={48} />
+              </div>
+              <span className="block text-sm font-medium text-red-500">
+                PDF only — other files not accepted
+              </span>
             </div>
           ) : (
             <div className="flex flex-col items-center">

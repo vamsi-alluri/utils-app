@@ -121,6 +121,7 @@ export default function SplitPdf() {
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [scale, setScale] = useState(2);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [isDragRejected, setIsDragRejected] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isSplitting, setIsSplitting] = useState(false);
@@ -349,22 +350,37 @@ export default function SplitPdf() {
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer.types.includes("Files")) setIsDraggingFile(true);
+    if (e.dataTransfer.types.includes("Files")) {
+      const items = Array.from(e.dataTransfer.items);
+      const valid = !items.length || items.every(i => i.kind === "file" && i.type === "application/pdf");
+      setIsDraggingFile(valid);
+      setIsDragRejected(!valid);
+    }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    if (!e.currentTarget.contains(e.relatedTarget as Node))
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setIsDraggingFile(false);
+      setIsDragRejected(false);
+    }
   };
 
-  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+  const handleDragOver = (e: React.DragEvent) => {
+    const items = Array.from(e.dataTransfer.items);
+    const valid = !items.length || items.every(i => i.kind === "file" && i.type === "application/pdf");
+    if (valid) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingFile(false);
+    setIsDragRejected(false);
     const dropped = e.dataTransfer.files[0];
-    if (dropped) loadFile(dropped);
+    if (dropped && dropped.type === "application/pdf") loadFile(dropped);
   };
 
   // --- Error banner ---
@@ -397,7 +413,7 @@ export default function SplitPdf() {
 
         <div
           className={`border-2 border-dashed rounded-2xl p-16 flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-150 outline-none
-            ${isDraggingFile ? "border-purple-400 bg-purple-50" : "border-gray-300 hover:border-purple-300 hover:bg-purple-50/40"}
+            ${isDragRejected ? "border-red-400 bg-red-50 cursor-not-allowed" : isDraggingFile ? "border-purple-400 bg-purple-50" : "border-gray-300 hover:border-purple-300 hover:bg-purple-50/40"}
             ${isProcessing ? "pointer-events-none opacity-60" : ""}`}
           onClick={() => fileInputRef.current?.click()}
           onKeyDown={(e) => {
@@ -423,13 +439,15 @@ export default function SplitPdf() {
             <>
               <UploadCloud
                 size={48}
-                className={isDraggingFile ? "text-purple-400" : "text-gray-300"}
+                className={isDragRejected ? "text-red-400" : isDraggingFile ? "text-purple-400" : "text-gray-300"}
               />
               <div className="text-center">
-                <p className="text-gray-600 font-medium">
-                  Drop a PDF here or click to upload
+                <p className={`font-medium ${isDragRejected ? "text-red-500" : "text-gray-600"}`}>
+                  {isDragRejected ? "PDF only — other files not accepted" : "Drop a PDF here or click to upload"}
                 </p>
-                <p className="text-gray-400 text-sm mt-1">PDF files only</p>
+                <p className="text-gray-400 text-sm mt-1">
+                  {isDragRejected ? "" : "PDF files only"}
+                </p>
               </div>
             </>
           )}

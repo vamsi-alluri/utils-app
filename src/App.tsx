@@ -1,6 +1,7 @@
 import { lazy, useState } from "react";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/helpers/AuthContext";
+import { ThemeProvider, useTheme, type Theme } from "@/helpers/ThemeContext";
 import AuthGuard from "@/components/AuthGuard";
 import Footer from "@/components/Footer";
 import Loader from "@/components/Loader";
@@ -11,7 +12,16 @@ import {
   Image as ImageIcon,
   Sparkles,
   Shield,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
+
+const THEME_ICON: Record<Theme, React.ReactNode> = {
+  light: <Sun className="w-4 h-4" />,
+  dark: <Moon className="w-4 h-4" />,
+  system: <Monitor className="w-4 h-4" />,
+};
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const JdScreener = lazy(() => import("@/utilities/jdScreener/App"));
@@ -47,7 +57,7 @@ function HomePage() {
             <FileText className="w-5 h-5 text-red-500" />
           </div>
           <div className="font-semibold text-gray-900 mb-1">PDF Tools</div>
-          <p className="text-sm text-gray-500">Merge, split, convert PDF ↔ JPG</p>
+          <p className="text-sm text-gray-500">Merge, split, convert <span className="whitespace-nowrap">PDF ↔ JPG</span></p>
         </Link>
 
         <Link
@@ -70,7 +80,7 @@ function HomePage() {
           </div>
           <div className="font-semibold text-gray-900 mb-1">
             JD Screener{" "}
-            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
+            <span className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">
               Auth
             </span>
           </div>
@@ -83,6 +93,24 @@ function HomePage() {
         <span>Files never leave your device · No cookies · No tracking</span>
       </div>
     </div>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, cycleTheme } = useTheme();
+  const labels: Record<Theme, string> = {
+    light: "Switch to dark mode",
+    dark: "Switch to system theme",
+    system: "Switch to light mode",
+  };
+  return (
+    <button
+      onClick={cycleTheme}
+      title={labels[theme]}
+      className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+    >
+      {THEME_ICON[theme]}
+    </button>
   );
 }
 
@@ -144,8 +172,10 @@ function AppContent() {
             </Link>
           </div>
 
-          {/* Right side: auth state */}
-          <div className="ml-auto flex flex-col items-end gap-1">
+          {/* Right side: theme toggle + auth */}
+          <div className="ml-auto flex items-center gap-3">
+          <ThemeToggle />
+          <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-4">
               {user ? (
                 <>
@@ -183,6 +213,7 @@ function AppContent() {
               <p className="text-xs text-red-500">{authError}</p>
             )}
           </div>
+          </div>
         </nav>
 
         {/* Main content */}
@@ -218,8 +249,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

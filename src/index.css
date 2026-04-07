@@ -1,2 +1,70 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+/* Enable dark: utility variants when html.dark is set */
+@variant dark (&:where(.dark, .dark *));
+
+/*
+  Dark mode: override Tailwind v4's CSS color variables inside html.dark.
+  Because all Tailwind color utilities reference these variables, every
+  component picks up the dark theme automatically — no per-component changes needed.
+*/
+html.dark {
+  /* Neutral grays — inverted lightness scale */
+  --color-white:    oklch(0.21  0.006 264.5);   /* card surface        */
+  --color-gray-50:  oklch(0.165 0.004 264.5);   /* page background     */
+  --color-gray-100: oklch(0.23  0.006 264.5);   /* elevated surface    */
+  --color-gray-200: oklch(0.30  0.007 264.5);   /* border              */
+  --color-gray-300: oklch(0.38  0.010 264.5);   /* strong border       */
+  --color-gray-400: oklch(0.48  0.015 264.5);   /* muted icons         */
+  --color-gray-500: oklch(0.58  0.015 264.5);   /* muted text          */
+  --color-gray-600: oklch(0.68  0.012 264.5);   /* secondary text      */
+  --color-gray-700: oklch(0.78  0.010 264.5);   /* body text           */
+  --color-gray-800: oklch(0.86  0.006 264.5);   /* secondary heading   */
+  --color-gray-900: oklch(0.93  0.003 264.5);   /* primary text        */
+
+  /*
+    Accent colors — full dark-mode treatment.
+    Two principles:
+      1. Tints (-50, -100): nearly black, barely hued — no glowing color blocks.
+      2. Mid-range (-400 to -700): lighter L so they're readable on dark bg,
+         chroma cut ~35 % so they stop vibrating against the background.
+  */
+
+  /* Red */
+  --color-red-50:  oklch(0.19 0.007 15);
+  --color-red-100: oklch(0.24 0.013 15);
+  --color-red-200: oklch(0.33 0.030 15);
+  --color-red-300: oklch(0.43 0.058 15);
+  --color-red-400: oklch(0.60 0.120 25);
+  --color-red-500: oklch(0.68 0.148 25);
+  --color-red-600: oklch(0.62 0.155 27);
+  --color-red-700: oklch(0.68 0.135 28);
+  --color-red-900: oklch(0.87 0.055 15);
+
+  /* Blue */
+  --color-blue-50:  oklch(0.19 0.007 250);
+  --color-blue-100: oklch(0.25 0.015 250);
+  --color-blue-200: oklch(0.34 0.035 250);
+  --color-blue-300: oklch(0.44 0.065 250);
+  --color-blue-400: oklch(0.60 0.110 255);
+  --color-blue-500: oklch(0.67 0.135 260);
+  --color-blue-600: oklch(0.61 0.155 263);
+  --color-blue-700: oklch(0.67 0.135 264);
+
+  /* Purple */
+  --color-purple-50:  oklch(0.19 0.007 305);
+  --color-purple-100: oklch(0.25 0.015 305);
+  --color-purple-200: oklch(0.34 0.040 305);
+  --color-purple-300: oklch(0.44 0.070 302);
+  --color-purple-400: oklch(0.60 0.130 305);
+  --color-purple-500: oklch(0.67 0.165 304);
+  --color-purple-600: oklch(0.60 0.175 302);
+  --color-purple-700: oklch(0.66 0.155 302);
+
+  /* Green */
+  --color-green-50:  oklch(0.19 0.007 150);
+  --color-green-100: oklch(0.25 0.015 150);
+  --color-green-200: oklch(0.34 0.032 150);
+  --color-green-600: oklch(0.66 0.125 149);
+}
